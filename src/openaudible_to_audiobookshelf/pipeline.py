@@ -407,9 +407,15 @@ def _run_libationcli(
 ) -> dict:
     """Run a libationcli subcommand and return structured results."""
     cmd = [cli_path] + args
+    # libationcli resolves LibationContext.db via cwd or LIBATION_FILES_DIR.
+    # Invoked from the MCP server's cwd it throws "SQLite Error 14: unable to
+    # open database file" unless LIBATION_FILES_DIR is set explicitly.
+    # See abs_mcp/skills/abs-vm-provisioning.md for the documented fix.
+    env = os.environ.copy()
+    env.setdefault("LIBATION_FILES_DIR", "/home/stratus/Libation")
     LOGGER.info("Running: %s", " ".join(cmd))
     result = subprocess.run(
-        cmd, capture_output=True, text=True, check=False, timeout=timeout
+        cmd, capture_output=True, text=True, check=False, timeout=timeout, env=env
     )
     return {
         "success": result.returncode == 0,
