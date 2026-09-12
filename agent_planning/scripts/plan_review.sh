@@ -148,9 +148,15 @@ sys.exit(1)
       printf '%s\n' "$picked"
       return
     fi
-    local escaped_raw
-    escaped_raw="$(printf '%s' "$stripped" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()[:4000]))' 2>/dev/null || echo '"unparseable"')"
-    echo '{"error":"non-json-output","model":"'"$MODEL"'","plan":"'"$PLAN"'","raw":'"$escaped_raw"'}'
+    # Build the error envelope with python so $MODEL/$PLAN are JSON-escaped.
+    printf '%s' "$stripped" | python3 -c '
+import json, sys
+print(json.dumps({"error": "non-json-output",
+                  "model": sys.argv[1],
+                  "plan": sys.argv[2],
+                  "raw": sys.stdin.read()[:4000]}))
+' "$MODEL" "$PLAN" 2>/dev/null || printf '{"error":"non-json-output","model":"%s","plan":"%s"}\n' \
+      "${MODEL//\"/\\\"}" "${PLAN//\"/\\\"}"
     return
   fi
 
@@ -160,7 +166,8 @@ sys.exit(1)
   if [[ -n "$best" ]]; then
     printf '%s\n' "$best"
   else
-    echo '{"error":"no-json-line","model":"'"$MODEL"'","plan":"'"$PLAN"'"}'
+    printf '{"error":"no-json-line","model":"%s","plan":"%s"}\n' \
+      "${MODEL//\"/\\\"}" "${PLAN//\"/\\\"}"
   fi
 }
 

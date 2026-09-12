@@ -30,7 +30,7 @@ Read @agent_planning/PLAN_CORE.md and follow it exactly.
 Read @agent_planning/addenda/INDEX.md — select and read the matching domain addendum.
 If the selected addendum supports OpenSpec (software or pipeline): check for project specs per its spec section before authoring tasks.
 If the selected addendum produces executable code (software, pipeline, automation with function nodes, infra with scripts): also read @agent_planning/addenda/code-quality.md.
-Read @agent_planning/claude/MODEL_ADDENDUM.md for thinking configuration and granularity guidance.
+Read @agent_planning/deepseek/MODEL_ADDENDUM.md for thinking configuration and granularity guidance.
 
 Start with the tiered discovery protocol (Section 0). Classify the tier,
 run the appropriate DR/interview sequence, and do not write tasks until
@@ -50,7 +50,7 @@ Read @agent_planning/PLAN_CORE.md and follow it exactly.
 Read @agent_planning/addenda/<ADDENDUM>.md   ← one of: software | infrastructure | automation | pipeline
 If the selected addendum supports OpenSpec (software or pipeline): check for project specs per its spec section before authoring tasks.
 If the selected addendum produces executable code (software, pipeline, automation with function nodes, infra with scripts): also read @agent_planning/addenda/code-quality.md.
-Read @agent_planning/claude/MODEL_ADDENDUM.md
+Read @agent_planning/deepseek/MODEL_ADDENDUM.md
 
 Start with the tiered discovery protocol (Section 0). Classify the tier,
 run the appropriate DR/interview sequence, and do not write tasks until
@@ -72,7 +72,7 @@ Read @agent_planning/PLAN_CORE.md and follow it exactly.
 Read @agent_planning/addenda/INDEX.md — select and read the matching domain addendum.
 If the selected addendum supports OpenSpec (software or pipeline): check for project specs per its spec section before authoring tasks.
 If the selected addendum produces executable code (software, pipeline, automation with function nodes, infra with scripts): also read @agent_planning/addenda/code-quality.md.
-Read @agent_planning/openai/MODEL_ADDENDUM.md for reasoning effort configuration and context budget guidance.
+Read @agent_planning/minimax/MODEL_ADDENDUM.md for reasoning effort configuration and context budget guidance.
 
 Start with the tiered discovery protocol (Section 0). Classify the tier,
 run the appropriate DR/interview sequence, and do not write tasks until
@@ -90,7 +90,7 @@ Read @agent_planning/PLAN_CORE.md and follow it exactly.
 Read @agent_planning/addenda/<ADDENDUM>.md   ← one of: software | infrastructure | automation | pipeline
 If the selected addendum supports OpenSpec (software or pipeline): check for project specs per its spec section before authoring tasks.
 If the selected addendum produces executable code (software, pipeline, automation with function nodes, infra with scripts): also read @agent_planning/addenda/code-quality.md.
-Read @agent_planning/openai/MODEL_ADDENDUM.md
+Read @agent_planning/minimax/MODEL_ADDENDUM.md
 
 Start with the tiered discovery protocol (Section 0). Classify the tier,
 run the appropriate DR/interview sequence, and do not write tasks until
@@ -112,7 +112,7 @@ Read @agent_planning/PLAN_CORE.md and follow it exactly.
 Read @agent_planning/addenda/software.md
 If the project has existing specs: check agent_planning/openspec/specs/ before authoring tasks.
 Read @agent_planning/addenda/code-quality.md before authoring tasks.
-Read @agent_planning/openai/MODEL_ADDENDUM.md for Codex context limits and AGENTS.md guidance.
+Read @agent_planning/minimax/MODEL_ADDENDUM.md for Codex context limits and AGENTS.md guidance.
 
 Start with the tiered discovery protocol (Section 0). Classify the tier,
 run the appropriate DR/interview sequence, and do not write tasks until

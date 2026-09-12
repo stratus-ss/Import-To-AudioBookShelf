@@ -390,5 +390,5 @@ not precede its first deploy/apply task.
 
 See the following files for context-window sizing, thinking configuration, and model-specific guidance:
 
-- Claude (Opus 4.6, Sonnet 4.6, Sonnet 5): `agent_planning/claude/MODEL_ADDENDUM.md`
-- OpenAI (GPT 5.4, Codex): `agent_planning/openai/MODEL_ADDENDUM.md`
+- DeepSeek (V4 Pro / V4.1 Flash): `agent_planning/deepseek/MODEL_ADDENDUM.md`
+- MiniMax (M3): `agent_planning/minimax/MODEL_ADDENDUM.md`

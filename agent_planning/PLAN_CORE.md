@@ -7,7 +7,7 @@ This document contains the universal planning discipline that applies to ALL pla
 **Read in this order:**
 1. This file (`PLAN_CORE.md`)
 2. `addenda/INDEX.md` → select and read the matching addendum
-3. (Optional) `claude/MODEL_ADDENDUM.md` or `openai/MODEL_ADDENDUM.md`
+3. (Optional) the model addendum for your model: `deepseek/MODEL_ADDENDUM.md` or `minimax/MODEL_ADDENDUM.md`
 
 ---
 
@@ -35,7 +35,7 @@ Before beginning discovery, classify the request into one of three tiers. The ti
 | Tier | Trigger | Discovery Method |
 |------|---------|-----------------|
 | **Tier 1** | Single-system, no remote deployment, <5 tasks. Bugfixes, single-file refactors, documentation, local scripts. | 7-category quick interview + restatement gate |
-| **Tier 2** | Remote systems, deployment, monitoring setup, multi-host operations, 5–15 tasks. | Domain-specific Decision Records (DRs) + Discovery Summary + restatement gate |
+| **Tier 2** | Remote systems, deployment, monitoring setup, multi-host operations (task count is a heuristic — a single-system deployment stays Tier 2 even above 15 tasks; see the disambiguation below). | Domain-specific Decision Records (DRs) + Discovery Summary + restatement gate |
 | **Tier 3** | Multi-system integrations where 3+ independent systems must coordinate, multi-phase migrations with data-at-risk, or projects where a dependency graph between DRs is non-trivial (DRs gate other DRs). | Full grouped DRs + dependency graph + Architecture Summary + restatement gate |
 
 When in doubt, choose the higher tier. The cost of under-scoping discovery is tasks that silently fail on unresolved assumptions.
@@ -380,7 +380,7 @@ OUTPUT:
 - If a feature needs types + logic + output, that is 3 tasks minimum.
 - Every task that adds struct fields MUST have a paired output-wiring task later.
 
-**Model-specific line target relaxation:** See `claude/MODEL_ADDENDUM.md` §C3 or `openai/MODEL_ADDENDUM.md` §O3 for whether the 50-line target is relaxed for the model being used.
+**Model-specific line target relaxation:** See the model addendum for your model (`deepseek/MODEL_ADDENDUM.md` or `minimax/MODEL_ADDENDUM.md`) for whether the 50-line target is relaxed.
 
 ---
 
@@ -406,7 +406,7 @@ Each task operates on at most ONE layer. If a feature spans layers, split into s
 - **Large file reference rule:** If any single file referenced by the plan's KEY FILES REFERENCE or CONTEXT sections exceeds 500 lines, the plan MUST include an explicit token budget estimate at the top of the OBJECTIVE section. Format: `Token budget: ~XXX K tokens (plan + N files: file1 L lines, file2 M lines)`.
 - **Batch-task risk:** When a single task's STRUCTURE describes generating more than 200 lines of output, that task MUST be split into sub-tasks. The risk is attention fragmentation — the model exhausts focus on early details and silently skips later ones.
 
-**Model-specific context window sizes and phasing guidance:** See `claude/MODEL_ADDENDUM.md` §C1/C3 or `openai/MODEL_ADDENDUM.md` §O1/O3.
+**Model-specific context window sizes and phasing guidance:** See `deepseek/MODEL_ADDENDUM.md` §D1 or `minimax/MODEL_ADDENDUM.md` §M1.
 
 ---
 
@@ -456,7 +456,7 @@ Show a concrete good example and a concrete bad example. Models generalize from 
 ### Negative constraints matter
 Models may drift without explicit "don't" lists. Always include what NOT to do.
 
-**Model-specific prompting conventions (thinking/effort modes, reasoning configuration):** See `claude/MODEL_ADDENDUM.md` §C2/C6 or `openai/MODEL_ADDENDUM.md` §O2/O5.
+**Model-specific prompting conventions (thinking/effort modes, reasoning configuration):** See `deepseek/MODEL_ADDENDUM.md` §D2/D6 or `minimax/MODEL_ADDENDUM.md` §M4.
 
 ---
 

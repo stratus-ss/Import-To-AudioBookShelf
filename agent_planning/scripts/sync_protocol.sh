@@ -82,8 +82,9 @@ done
 # ── Discover mode ─────────────────────────────────────────────────────────────
 if $DISCOVER; then
   echo "Repos with agent_planning/ under $GIT_PROJECTS:"
-  find "$GIT_PROJECTS" -maxdepth 2 -type d -name "agent_planning" \
-    ! -path "*/$(basename "$CANONICAL")/*" -printf "  %h\n" 2>/dev/null | sort
+  # Portable (no GNU-only -printf): resolve each hit's parent with dirname.
+  find "$GIT_PROJECTS" -maxdepth 2 -type d -name "agent_planning" 2>/dev/null \
+    | while IFS= read -r p; do dirname "$p"; done | sort | sed 's/^/  /'
   echo ""
   echo "To register a repo, add its directory name to KNOWN_REPOS in this script."
   exit 0
@@ -92,6 +93,12 @@ fi
 # ── Sync helpers ──────────────────────────────────────────────────────────────
 sync_file() {
   local src="$1" dst="$2"
+  # A same-named directory where a file is expected must fail loudly, not
+  # silently copy INTO the directory.
+  if [[ -d "$dst" ]]; then
+    echo "  ERROR: destination is a directory, not a file: $dst" >&2
+    return 1
+  fi
   if $DRY_RUN; then
     if [[ -f "$dst" ]] && diff -q "$src" "$dst" >/dev/null 2>&1; then
       echo "  [skip]  $dst (identical)"
@@ -142,7 +149,7 @@ for repo in "${KNOWN_REPOS[@]}"; do
       errors=$((errors + 1))
       continue
     fi
-    sync_file "$CANONICAL/$f" "$target/$f"
+    sync_file "$CANONICAL/$f" "$target/$f" || errors=$((errors + 1))
   done
 
   for d in "${CANONICAL_DIRS[@]}"; do
@@ -151,11 +158,12 @@ for repo in "${KNOWN_REPOS[@]}"; do
       errors=$((errors + 1))
       continue
     fi
-    for f in "$CANONICAL/$d"/*.md; do
+    # Recursive so nested addenda files are synced and verified.
+    while IFS= read -r f; do
       [[ -f "$f" ]] || continue
       rel="${f#"$CANONICAL"/}"
-      sync_file "$f" "$target/$rel"
-    done
+      sync_file "$f" "$target/$rel" || errors=$((errors + 1))
+    done < <(find "$CANONICAL/$d" -type f 2>/dev/null)
   done
 done
 
@@ -176,14 +184,14 @@ if ! $DRY_RUN; then
     done
     for d in "${CANONICAL_DIRS[@]}"; do
       [[ -d "$CANONICAL/$d" ]] || continue
-      for f in "$CANONICAL/$d"/*.md; do
+      while IFS= read -r f; do
         [[ -f "$f" ]] || continue
         rel="${f#"$CANONICAL"/}"
         if ! diff -q "$f" "$target/$rel" >/dev/null 2>&1; then
           echo "  MISMATCH: $repo/agent_planning/$rel"
           mismatches=$((mismatches + 1))
         fi
-      done
+      done < <(find "$CANONICAL/$d" -type f 2>/dev/null)
     done
     if [[ "$mismatches" -eq 0 ]]; then
       echo "  $repo: all files in sync"

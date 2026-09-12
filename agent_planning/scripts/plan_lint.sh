@@ -20,7 +20,6 @@ set -euo pipefail
 REQUIRE_FULL=0
 ALLOW_NON_CODE=0
 # REPORT_PHASE2 gates the P8d–P8j diagnostic checks (added in Task 6/7).
-# shellcheck disable=SC2034
 REPORT_PHASE2=0
 PLAN=""
 
@@ -28,10 +27,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --require-full-tasks) REQUIRE_FULL=1; shift ;;
     --allow-non-code) ALLOW_NON_CODE=1; shift ;;
-    --report-phase2) # shellcheck disable=SC2034
-                      REPORT_PHASE2=1; shift ;;
+    --report-phase2) REPORT_PHASE2=1; shift ;;
     -h|--help)
-      sed -n '2,16p' "$0" | sed 's/^# \?//'
+      awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print } NR>1 && !/^#/ { exit }' "$0"
       exit 0
       ;;
     *)
@@ -302,7 +300,7 @@ if [[ "$REQUIRE_FULL" -eq 1 ]]; then
       if [[ $((i+1)) -lt "${#TASK_HEADINGS[@]}" ]]; then
         end="${TASK_HEADINGS[$((i+1))]}"
       else
-        end="$(wc -l < "$PLAN")"
+        end="$(awk 'END{print NR}' "$PLAN")"
       fi
       title="$(task_title "${start}")"
       body="$(task_body "${start}" "${end}")"
@@ -360,7 +358,7 @@ check_destructive_gate() {
     if [[ $((i+1)) -lt "${#TASK_HEADINGS[@]}" ]]; then
       end="${TASK_HEADINGS[$((i+1))]}"
     else
-      end="$(wc -l < "$PLAN")"
+      end="$(awk 'END{print NR}' "$PLAN")"
     fi
     title="$(task_title "${start}")"
     body="$(task_body "${start}" "${end}")"
@@ -398,7 +396,7 @@ check_devlog_per_task() {
     if [[ $((i+1)) -lt "${#TASK_HEADINGS[@]}" ]]; then
       end="${TASK_HEADINGS[$((i+1))]}"
     else
-      end="$(wc -l < "$PLAN")"
+      end="$(awk 'END{print NR}' "$PLAN")"
     fi
     title="$(task_title "${start}")"
     body="$(task_body "${start}" "${end}")"
@@ -602,7 +600,7 @@ if [[ "$REPORT_PHASE2" -eq 1 ]]; then
       if [[ $((i+1)) -lt "${#TASK_HEADINGS[@]}" ]]; then
         end="${TASK_HEADINGS[$((i+1))]}"
       else
-        end="$(wc -l < "$PLAN")"
+        end="$(awk 'END{print NR}' "$PLAN")"
       fi
       title="$(task_title "${start}")"
       body="$(task_body "${start}" "${end}")"
@@ -717,7 +715,7 @@ if [[ "$REPORT_PHASE2" -eq 1 ]]; then
       if [[ $((i+1)) -lt "${#TASK_HEADINGS[@]}" ]]; then
         end="${TASK_HEADINGS[$((i+1))]}"
       else
-        end="$(wc -l < "$PLAN")"
+        end="$(awk 'END{print NR}' "$PLAN")"
       fi
       title="$(task_title "${start}")"
       body="$(task_body "${start}" "${end}")"

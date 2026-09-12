@@ -104,13 +104,15 @@ if [[ -n "$PLAN" ]]; then
   if [[ "$SKIP_R7_GATE" -eq 1 ]]; then
     echo "[init_execution_dir] WARN — skipping R7 recorded-line gate (--skip-r7-gate). Log as [SCOPE-GAP]."
   else
-    r7_block="$(awk '/Recorded R7 review|R7 review line/{f=1} f && c<25 {print; c++}' "$PLAN")"
+    # Capture from the marker to the next `## ` heading or EOF (not a fixed
+    # window), so a long review block cannot hide the FAIL count.
+    r7_block="$(awk '/Recorded R7 review|R7 review line/{f=1} f && /^## / && !/Recorded R7|R7 review line/{exit} f{print}' "$PLAN")"
     if [[ -z "$r7_block" ]]; then
       echo "[init_execution_dir] FAIL — no recorded R7 review line in the plan preamble (R7 gate)." >&2
       echo "  Run plan_review.sh, record the line under 'Recorded R7 review + operator gate', then re-run." >&2
       exit 1
     fi
-    if printf '%s\n' "$r7_block" | rg -q '[1-9][0-9]* FAIL'; then
+    if printf '%s\n' "$r7_block" | rg -q '[1-9][0-9]* FAIL\b'; then
       echo "[init_execution_dir] FAIL — recorded R7 line reports an unresolved FAIL finding (R7 gate)." >&2
       printf '%s\n' "$r7_block" | sed 's/^/  /' >&2
       exit 1
@@ -128,7 +130,7 @@ if [[ -n "$PLAN" ]]; then
   mkdir -p "$(dirname "$REVIEW_OUT")"
   if [[ -x "$SCRIPT_DIR/plan_review.sh" ]]; then
     echo "[init_execution_dir] Running plan_review.sh (advisory) on $PLAN"
-    if timeout 200 "$SCRIPT_DIR/plan_review.sh" "$PLAN" --out "$REVIEW_OUT" >/dev/null 2>&1; then
+    if timeout "${PLAN_REVIEW_TIMEOUT:-1500}" "$SCRIPT_DIR/plan_review.sh" "$PLAN" --out "$REVIEW_OUT" >/dev/null 2>&1; then
       if [[ -f "$REVIEW_OUT" ]]; then
         # shellcheck disable=SC2016  # single-quote python: env var intentionally literal
         R7_SUMMARY=$(REVIEW_OUT="$REVIEW_OUT" python3 -c '
