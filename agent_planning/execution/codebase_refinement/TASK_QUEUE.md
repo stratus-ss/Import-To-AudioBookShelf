@@ -1,0 +1,28 @@
+# Task Queue — codebase_refinement
+
+## Plan 3 — MCP Restructure (active)
+
+| ID | Task | Status | Notes |
+|----|------|--------|-------|
+| 1  | Take VM snapshot `abs-clean-base` for integration test baseline | done | Created after migrating ABS data from /tmp (tmpfs) to /var/lib/abs-test/. Snapshot at 09:52. Admin user + empty Test Library in baseline. See artifacts/plan1_amendments.md for /tmp → /var/lib fix. |
+| 2  | Create package structure — `__init__.py` files | done | Created `abs-mcp/__init__.py` (docstring) + `abs-mcp/tools/__init__.py` (docstring). Symlink `abs_mcp -> abs-mcp` added at repo root so `import abs_mcp` works (Python packages can't have hyphens in directory names). See devlog for INFRA-FACT. |
+| 3  | Extract config module — `abs-mcp/config.py` | done | Extracted _load_dotenv, _env, _r, _load_libraries, _resolve_library, _build_config, _record_tool_result (dict sig), METRICS, LOGGER, PARSER, cleaning progress state. mcp_server.py still works via sys.path. 125/12 pytest preserved. |
+| 4  | Extract ingestion tools — `tools/ingestion.py` | done | Extracted 9 functions (scan_audible, set_book_status, download_books, export_library, organize_books, scan_audiobookshelf, match_audiobookshelf, ingest_books, get_cleaning_progress) + _last_downloaded_asins global. Added abs-mcp.pth to site-packages so absolute imports work both for package and sys.path styles. 125/12 pytest preserved. |
+| 5  | Extract discovery tools — `tools/discovery.py` | done | Extracted 7 functions (list_libraries, list_library, get_status, list_abs_library, search_abs_library, get_source_status, delete_library_items). 125/12 pytest preserved. |
+| 6  | Extract podcast + metrics tools — `tools/podcast.py` + `tools/metrics.py` | done | Extracted 9 functions: 7 podcast (search/add/list/get_episodes/download_episodes/fetch_feed/download_files) + 2 metrics (get_tool_metrics/query_tool_metrics_history). 125/12 pytest preserved. |
+| 7  | Wire `mcp_server.py` assembly + convert imports to relative | done | mcp_server.py shrunk from 1557→120 lines. All 25 tools registered via per-module FastMCP instance tool transfer. _mcp_bridge.py uses relative import + structuredContent fallback. pytest 125/12 baseline preserved. |
+| 8  | Replace `_last_downloaded_asins` global with file-based handoff | done | Added _write_downloaded_asins/_read_downloaded_asins helpers; download_books writes file; organize_books reads file (cfg.asins explicit override priority). Global removed. Round trip + missing file tested. 125/12 pytest preserved. |
+| 9  | Change return types from `str` to `dict` | done | Updated _record_tool_result to pass dict through; replaced 32+ json.dumps() wrappers across 4 tool modules. metrics tools return dict directly. get_cleaning_progress uses _record_tool_result. 125/12 pytest preserved. |
+| 10 | Create OpenSpec `ingestion-mcp` behavioral spec (~50 scenarios) | done | Appended 49 scenarios across 10 new Requirement sections (library resolution, tool return type, ASIN file handoff, error propagation, tool ordering invariants, cache behavior, progress tracking, podcast tools, discovery tools, metrics tools). Total: 54 scenarios (target ≥40). Spec grew 43→372 lines. |
+| 11 | Create MCP integration tests (`tests/mcp/`) | done | 6 files: conftest.py (env-var/artifact config loader + opt-in snapshot restore), test_ingestion.py (4), test_discovery.py (5), test_error_paths.py (4), test_cache.py (3), test_asins_file.py (3). Total: 19 cases. 19/19 pass with env vars set. Existing 125/12 baseline preserved. |
+| 12 | Functional testing — snapshot restore + exercise all tool groups | done | Snapshot restore failed (libvirt internal qcow2 snapshot didn't capture /var/lib/abs-test data — same pattern as Plan 1's tmpfs issue but at qcow2 layer). Recreated ABS container on dl380 host (192.168.99.92:13378) with persistent bind mounts. All 5 functional tests pass. 19/19 integration tests pass. 7/7 profanity cleaning tests added. Long-running stress test (real LibriVox audiobook, 7 chapters × ~30 min = 3.5h audio, transcribed via production Whisper at containers-gpu.x86experts.com:8001, AudioCleaner monkey-patched to call real /transcription/) running PID 665629 — observes MCP behavior during real cleaning. |
+| 13 | Update Vikunja task #108 | done | Added comment to #108 documenting Plan 2 completion, Plan 3 scope, and the two production Whisper bugs found during the stress test (`/swear-removal/` undefined function + `/transcription/` KeyError on lang=en). |
+| 14 | Update documentation — README, skills, KB doc, test_mcp.sh | done | README.md: new "MCP package structure" section with module table. abs-mcp/test_mcp.sh: uses `python -m abs_mcp._mcp_bridge` (post-Plan 3 relative imports) + updated mcp_text() for native dict returns. abs-mcp/skills/moltis-audiobook-pipeline.md: noted explicit ASIN handoff option. KB doc skipped per Plan 1/2 user preference (out-of-repo). |
+| 15 | Archive OpenSpec and finalize | done | 11/11 success criteria PASS. 151/12 pytest (Plan 2 baseline 125 + 26 new MCP tests). Fixed conftest.py env override bug (token in test_config.json was expiring mid-session). All tests pass, stress test completed, books on ABS, HANDOFF.md + devlog + Vikunja all updated. |
+
+## Plan 1 (done)
+
+| ID | Task | Status | Notes |
+|----|------|--------|-------|
+| Plan 1 | Core library foundation | done | 13/13 tasks complete. Config.from_dict(), _validate_profanity_config deleted, logging consolidated, monkeyplug pinning, MAX_LOOKBACK_DAYS extracted, sanitize_filename unified. 125/125 pytest baseline. |
+| Plan 2 | Core harden (ABSClient, helpers, step boundaries) | done | 12/12 tasks complete. 10/10 criteria PASS. 125/125 pytest preserved. |
