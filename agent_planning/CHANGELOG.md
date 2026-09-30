@@ -1,5 +1,82 @@
 # Changelog
 
+## 2026-09-26 — Truth-gap remediation (R12, enumeration wording, absence mark, count-compare, rubric)
+
+Origin: a human-grade review of the `dnd_battle_spell_flow` plan (D&D_Workflow) found two cross-boundary defects the gates missed — a producer/consumer representation mismatch and an incomplete call-site enumeration on module-private functions; root-cause analysis lives in the D&D_Workflow repo at `tmp/planning_protocol_spellbook_fix.md`. A parallel proposal (`tmp/battle_spell_plan_updates.md`, D&D_Workflow) harvested a seven-rule package from the same execution; four rules were folded in here, two were rejected as duplicates of `code-quality.md §CQ6` / `§CQ10` and the duplication recorded there. The fix lands in the canonical framework at `~/git_projects/scratch_pad/agent_planning/` and propagates downstream via the operator-gated `sync_protocol.sh` (R1). Plan-of-record: `zed_plans/protocol_truth_gaps_2026-09-26.md` (Tasks 1–8 + late-ingested Tasks 9–10 for the 2026-09-26 addendum `tmp/augment_protocol_truth_gaps.md`).
+
+### Added
+
+- `PLAN_CORE.md §2` — new cross-cutting rule **R12 Producer–consumer representation fidelity** (trimmed one-paragraph form per DR-1): consuming tasks MUST quote the consumer's expected representation with provenance, name the stored→consumed transformation (or cite the consuming site that proves none is needed), and carry at least one acceptance that feeds the producer's actual output through the real consumer path. Producer-side-only assertions (counts, key names, category labels) do not satisfy the rule when the consumer receives a different shape. §12 checklist adds the R12 bullet.
+- `PLAN_CORE.md §2 Change-Impact Enumeration` — three new rows (AUG-1 addendum ingest): asserted-identity co-scheduling; replaced-surface enumeration (incl. the degenerate / empty case that exercises zero of its branches); new mutable state — create / read / clear paths plus the sibling-reset handlers the new state joins. §12 checklist gains three matching bullets.
+- `PLAN_CORE.md §6` — new provenance mark **`✅ VERIFIED-ABSENT`** meaning "the planner ran this exact command and confirmed it returns zero matches / exits non-zero (a tested absence)". Recognized by §6 and by the P1 marks regex; deliberately never re-executed by `plan_selfcheck.sh --rerun`, which treats non-zero exit as failure. §12 marks line lists the new mark.
+- `plan_selfcheck.sh --rerun` — exact-count re-execution: a `✅ TESTED` line stating `→ N lines` is re-executed and the live stdout line count must equal the stated count; re-executed commands' stdin is redirected from `/dev/null` so a stdin-reading command cannot swallow the queue. Skips plan lines marked `✅ VERIFIED-ABSENT` (tested absences exit non-zero by design) and `⚠️ UNTESTED` (lines state an expectation, not a tested fact). Excludes backticked spans containing `...` (the `...` guard exempts explanatory / abbreviated quotes on ✅ TESTED lines — every other backticked span is treated as a command). Commands run verbatim in the caller's cwd; rerun-eligible plan commands must use absolute paths.
+- `scripts/plan_lint.sh` — the P1 marks regex widens to recognize `✅ VERIFIED` and `✅ VERIFIED-ABSENT` alongside `✅ TESTED`, `📖 FROM-DOCS`, `⚠️ UNTESTED` (vocabulary drift fix vs the P8e diagnostic regex). P8j `cq_task_missing()` gains a fourth presence item: every coding task's VERIFICATION must carry a `MAINTAINABILITY CHECK` (per `code-quality.md §CQ6`); P8j is diagnostic-only and emits a P8j advisory, never a FAIL — do not promote.
+- `addenda/code-quality.md §CQ4 Plan-Authoring` — new sub-rule **`### Duplicated-value agreement guard`** (AUG-2 addendum ingest): when a value must exist in more than one artifact by architecture — config beside code, stylesheet beside script, documentation beside implementation; any duplication no build step unifies — the plan MUST include a value-anchored guard that pins the artifacts' agreement by extracting the value from its canonical artifact and asserting it appears in the others. Anchored to the value or a stable identity, never a line number. Supplements, never replaces, CQ4's define-once rule.
+- `addenda/software.md` — the same enumeration wording mirrored in Change-Impact Dependent Discovery (M2 wording applied to the discovery section).
+- `prompts/plan_review_rubric.md` v1.3 (2026-09-26; R8–R12) — R12 rubric line + three non-R-rule bullets under `R-rule Semantic Checks` (Asserted-identity co-scheduling / Replaced-surface enumeration / State-lifecycle declaration — AUG-3 addendum ingest). The reviewer now re-runs the plan's own enumeration searches against the working tree; unenumerated / phantom sites are FAIL.
+- `scripts/plan_review.sh` — the chunked-review loop note now tags cross-artifact contracts (producer↔consumer value flows, enumeration↔tree call-site sets) as findings tagged **`UNVERIFIED-CROSS-CHUNK`** with status `ADVISORY`. An unverified internal enumeration is a real issue, not an invented one.
+- `EXECUTION_PROTOCOL.md §8` — appended the **Deviation Review Feedback Loop** clause: a devlog entry claiming "Deviations from plan: none" is valid only if the executor re-read the task's STRUCTURE against the actual diff before writing the claim; any deviation entry quotes the plan text it deviates from and names what was done instead; numeric tallies in review tables are recomputed from the table's rows at write time — they are never recalled (AUG-4 addendum ingest).
+- `EXECUTION_PROTOCOL.md §9 Review Remediation & Guard Re-pointing` — extended the re-pointing rule from gate-forced refactors to *any* invalidating change: **`Guard co-scheduling`** updates the asserting artifact in the same task as the invalidating change, or records the plan's declared stale window. New checklist line: **Run every guard that reads any file this task touched — not only the guards the task's VERIFICATION lists** (AUG-4 addendum ingest).
+- `agent_planning/openspec/specs/plan-gate-selfcheck/spec.md` — new behavioral spec for the rerun contract: three Requirement blocks (Exact-count re-execution; Non-current claims are exempt from re-execution — covers `✅ VERIFIED-ABSENT` and `⚠️ UNTESTED` marks; Self-test coverage) and five Scenario blocks (count matches / count drifts / tested absence / expectation line with baseline quote / self-test). Authored directly as the living spec — the `/opsx` proposal machinery was not available in this session, recorded as a deviation.
+
+### Changed
+
+- `PLAN_CORE.md §2 Change-Impact Enumeration` — first table row broadens to: "Interface change (any callable signature or parameter meaning, including module-private / unexported functions; exported symbol, API shape, DB column, config key, event/message field, CLI flag)"; evidence cell mandates the pasted dependent listing with match count. A prose catch-all paragraph follows: "A prose catch-all … is **not** enumeration"; "visibility has nothing to do with blast radius" (M2 wording). §12 R-range header renames `(R1–R11)` → `(R1–R12)`.
+- `addenda/{software,code-quality,automation,infrastructure}.md` — R1–R11 → R1–R12 rename in the Cross-cutting framework rules paragraph, with the compressed R12 clause mirrored per `code-quality.md §DR-1`. software.md's Change-Impact Dependent Discovery gains the same enumeration wording as PLAN_CORE §2.
+- `scripts/plan_selfcheck.sh` — new SELF_TEST fixtures (6 total: incumbent bad/good + good_count with ellipsis-span guard + bad_count + absence-mark + untested-expectation); summary line assertions capture stdout (`rerun: N executed`) rather than relying on exit code alone.
+- `openspec/README.md` — Current Specs table row appended for `plan-gate-selfcheck`.
+
+### Rejected
+
+- **Per-task style gate** — already `code-quality.md §CQ6` (MAINTAINABILITY CHECK per task); the prior failure (F1 nested ternary) was a compliance failure of an existing rule, not a missing rule. AUG-5 closes the only real gap (`cq_task_missing` was missing the MAINTAINABILITY presence item).
+- **Budget ⇒ named decomposition** — already `code-quality.md §CQ10`; the prior failure (F2 complexity) was a compliance failure of an existing rule, not a missing rule.
+
+## 2026-09-26 — Acceptance-validity hardening (R8–R11): assertable, baseline-checked, behaviour-anchored
+
+Origin: a post-implementation Code Review found that a plan's stated Task-8
+acceptance checks could not pass against their own pre-change baseline (a
+nested-ternary check on a file that already had three), a z-index instruction
+misread the DOM stacking context, and a "names only" criterion was ambiguous;
+the executor also reshaped code around a brittle source-level guard. The fixes
+below close those failure classes, project-agnostically.
+
+### Added
+
+- `PLAN_CORE.md §2` — four new cross-cutting rules:
+  - **R8 Assertable acceptance** — every acceptance criterion is a binary,
+    mechanically checkable assertion; no subjective adjective stands as a
+    criterion; rendered/serialized criteria name the assertion that proves them.
+  - **R9 Baseline-verified absolutes** — every absolute/negative check
+    ("returns nothing", "finds no X", "expect 0", "is empty") is run against the
+    pre-change tree at authoring and cited, or scoped to the diff, or the
+    baseline is cleared by the plan. An unbaselined absolute may be unsatisfiable.
+  - **R10 Behaviour-anchored tests and guards** — static/source-level guards
+    assert behaviour or a stable identity, never incidental expression text or
+    line numbers; gate-forced refactors re-point the guard and log it.
+  - **R11 Review-remediation authority** — STOP RULES are task-scoped; the Code
+    Review task may remediate an earlier artifact (guards included) and logs it.
+- `PLAN_CORE.md §9` — Verification Integrity Rule gains the
+  **capture-at-completion** requirement (re-capture after a task's final edit).
+- `PLAN_CORE.md §12` — checklist rows for R8–R11.
+- `scripts/plan_selfcheck.sh` — new static check 5: absolute/negative acceptance
+  with no baseline result, no diff scope, and no `⚠️ UNTESTED (baseline)` mark.
+  Forward-only on the existing `zed_plans/*.md` corpus (pre-adoption failures
+  tolerated), matching the `plan_lint.sh` policy. Self-test fixtures extended.
+- `prompts/plan_review_rubric.md` v1.2 — R8–R11 semantic checks; the reviewer
+  must now attempt each absolute check against the working tree (R9) and flag it
+  when the baseline violates it.
+- `EXECUTION_PROTOCOL.md §9` — "Review Remediation & Guard Re-pointing" (R10/R11
+  mechanics + capture-at-completion).
+- `addenda/code-quality.md §CQ9.1` — the review task must name the pre-change
+  baseline command for every absolute/negative check, and carry the R11
+  remediation clause.
+
+### Changed
+
+- `PLAN_CORE.md §2/§12`, `addenda/{automation,infrastructure,software,code-quality}.md`,
+  `prompts/plan_review_rubric.md` — R-list header and enum `R1–R7` → `R1–R11`.
+- `agent_planning/AGENTS.md` — self-check bullet describes the new R9 check.
+
 ## 2026-09-12 — Framework hardening (DR-1..DR-5): R5/R7, P8a–P8j, mirror fix
 
 Plan: `zed_plans/plan_framework_hardening_2026-09-11.md` (12 tasks; bootstrap
@@ -232,3 +309,90 @@ Plan: `zed_plans/plan_framework_enforcement_2026-09-09.md`
 - `claude/MODEL_ADDENDUM.md §C6.5` — Sonnet-specific explicitness guidance (scope quantification, pattern `DIFFERENT:` callout, constraint carry-forward)
 - `CHANGELOG.md` (this file)
 - `Last updated:` markers on all core framework files
+
+## 2026-09-27 — Protocol simplification (R-rule dedup, state collapse, R5 automation, opt-in round-trips, telemetry)
+
+Origin: `zed_plans/protocol_simplification_2026-09-27.md` (Tasks 1–13). The plan took items 1–11 of the ten-item scope; item 8 (off-path PLAN_INSTRUCTIONS deprecation) and item 10 (tier-gated R7) were operator-accepted in the narrow form per DR-2/DR-3.
+
+### Added
+
+- `scripts/plan_lint.sh` — new `check_r5_coverage` check (Task 2): counts plan lines carrying an evidence mark + `YYYY-MM-DD` date and emits the count as advisory PASS output. The R5 §12 coverage number is now emitted by the lint instead of being hand-typed.
+- `scripts/plan_review.sh` — `run_selfcheck` helper + `-f` second-attachment (Task 3): the deterministic `plan_selfcheck.sh` output is attached to the reviewer invocation. Reviewer session nonce appended to the rubric note so re-reviews reflect edited plans (no more stale-finding reuse).
+- `scripts/init_execution_dir.sh` — `--r7-waived` flag (Task 10): records `R7 waived (narrow trigger)` in STATE.md and emits a `TELEMETRY r7_waived project=...` line for the new telemetry sink. STATE.md migration path (Task 7): when SESSION_BRIEF.md or HANDOFF.md exist but STATE.md does not, both legacy files are merged into STATE.md via one awk-extract pattern (no per-section copy-paste).
+- `agent_planning/TELEMETRY.md` + `agent_planning/execution/_telemetry.jsonl` (Task 11): JSONL schema for `plan_review` and `init_execution_dir` hooks. Local-only append; gitignored.
+- `prompts/plan_review_rubric.md` v1.3 → v1.4 (Task 3): items 5/6 defer to the attached self-check output; Bias section notes reviewer tool access.
+- `scripts/test/fixtures/p2_decision_branch.md` + `p2_fallback_allowed.md` (Task 1): new fixtures for the narrowed P2 scan.
+
+### Changed
+
+- `scripts/plan_lint.sh` `check_no_conditionals` (Task 1): replaced the broad token ban with a decision-branch pattern (`^[Ii]f <cond>, <consequence>` plus bullet-prefix variant) plus the three standalone branch connectors (`or equivalent`, `whichever`, `one of`). Lines starting with the literal `If ANY check fails` prefix are exempt (canonical access-gate fallback form).
+- `PLAN_CORE.md §2 R5` + §12 R5 row (Task 2): `§12 pass: <n>` preamble number is optional when the lint-emitted count is preserved in the devlog. The per-item evidence requirement is preserved.
+- `addenda/{software,code-quality,infrastructure,automation}.md` (Task 4): R1–R12 restatements replaced with a single pointer line to `PLAN_CORE.md §2`. Each addendum retains its domain-specific trigger bullets.
+- `addenda/code-quality.md §CQ9.2` (Task 5): mandatory model-switch pause → opt-in (default to current model; one-line operator request triggers the switch).
+- `addenda/code-quality.md §CQ1` (Task 6): per-task re-query of context7 → query happens at authoring and at the Code Review task. Per-task re-query not required unless the task cites a different library version. `API-DRIFT` tag preserved.
+- `EXECUTION_PROTOCOL.md` (Task 7): directory layout collapses SESSION_BRIEF.md + HANDOFF.md → STATE.md (single recovery file); artifact roles table, session read order, §4 writeback, §7 templates all updated.
+- `EXECUTION_PROTOCOL.md §8` (Task 11): new "Closeout Counterfactual" subsection names the counterfactual prompt and points at the telemetry sink.
+- `EXECUTION_PROTOCOL.md §9` (Task 5): pre-deployment gate cross-ref to CQ9.2 → opt-in form.
+- `PLAN_CORE.md §9` + §12 (Task 8): devlog placeholder "Remaining Tasks" reduced to a one-line pointer at TASK_QUEUE.md; the regeneration rule is removed. The devlog is no longer required to maintain a separate "Remaining Tasks" checklist.
+- `PLAN_CORE.md §2 R7` + §12 R7 row (Task 10): narrow trigger — REQUIRED for Tier 3 plans and for Tier 2 plans touching a remote system, public interface, schema/migration, secrets, or more than one repo; OPTIONAL (with `R7 waived (narrow trigger)` audit record) for local, non-public, deterministically verified Tier 2 plans.
+- `PLAN_CORE.md §2 "No conditional branches"` (Task 1): one sentence naming the allowed fallback directive form (`If ANY check fails:` prefix).
+- `prompts/README.md` (Task 5, Task 7): CODE REVIEW pause → opt-in form; resume prompts read STATE.md instead of SESSION_BRIEF.md + HANDOFF.md.
+- `sync_protocol.sh` (Task 9): removed `deepseek/PLAN_INSTRUCTIONS.md` and `minimax/PLAN_INSTRUCTIONS.md` from the canonical sync list (the legacy top-level `agent_planning/sync_protocol.sh` — same edit). The newer `scripts/sync_protocol.sh` already excluded them with a documented comment.
+- `AGENTS.md` (Task 9, repo root): KB-writeback citations repointed from `agent_planning/{minimax,deepseek}/PLAN_INSTRUCTIONS.md` to `PLAN_CORE.md §9.6` and the matching model addendum. "PLAN_INSTRUCTIONS task description" anti-pattern phrase removed.
+
+### Deprecated
+
+- `agent_planning/minimax/PLAN_INSTRUCTIONS.md` (Task 9): replaced with a 5-line redirect stub pointing at `PLAN_CORE.md` and `minimax/MODEL_ADDENDUM.md`.
+- `agent_planning/deepseek/PLAN_INSTRUCTIONS.md` (Task 9): same, pointing at `deepseek/MODEL_ADDENDUM.md`.
+
+### Held (not taken)
+
+- Original item 8 (full PLAN_INSTRUCTIONS deprecation): taken in narrow form per DR-3 — the operator-gated mirror sync is the only other disposal needed and lives in DR-5.
+- Original item 10 (broad tier-gated R7 waiver): taken in narrow form per DR-2 — see R7 above.
+
+### Verification
+
+- `bash agent_planning/scripts/quality_gate.sh agent_planning/scripts/*.sh` → PASS — shellcheck clean on all 6 shell scripts.
+- `bash agent_planning/scripts/plan_lint.sh --require-full-tasks zed_plans/protocol_simplification_2026-09-27.md` → PASS — R5 §12 coverage: 10 evidence-cited lines (advisory).
+- `bash agent_planning/scripts/plan_selfcheck.sh zed_plans/protocol_simplification_2026-09-27.md` → PASS — static checks clean.
+- CQ9.3 review: 26 PASS, 1 ADVISORY, 0 FAIL. The single ADVISORY is the pre-existing false-positive in `scripts/secret_scan.sh` (the script's own regex pattern matches itself). Not introduced by this plan.
+
+### R5 post-change count
+
+Plan preamble recorded: `§12 pass: 10 items` (re-recorded at closeout against the post-change `PLAN_CORE.md §12` checklist, via the `plan_lint.sh` R5 §12 coverage check; see the lint PASS line above).
+
+## 2026-09-28 — Whole-plan multi-file review (plan_review.sh)
+
+Origin: three chunked machine review runs (B− 68 → B+ 85 → A− 88) graded the `caster_slot_editor` plan clean while it contained three feature-breaking cross-task contracts; the full-matrix manual review (`tmp/caster_slot_editor_review4_findings.md`) and the size analysis (`tmp/plan_size_report_2026-09-28.md`) traced the miss to chunk-blindness — each chunk reviewer could not see the other chunks' task bodies.
+
+### Changed
+
+- `scripts/plan_review.sh`: oversize plans are still split at task boundaries (each part stays under opencode's ~50 KB per-file attachment limit) but ALL parts + the deterministic self-check output are now attached to a SINGLE reviewer invocation, so one reviewer session sees the whole plan and cross-task producer↔consumer contracts are reviewable as ordinary findings (the `UNVERIFIED-CROSS-CHUNK` exemption is explicitly withdrawn in the multi-file note). The whole-plan run gets a 600 s timeout (240 s stays for single-file). On invocation failure or unparsable output, the wrapper falls back to the previous sequential per-part reviews — behavior is never worse than before. First live run (caster_slot_editor, 67 KB, 2 parts) caught a real cross-chunk defect — a §12 count drift between the preamble and §12 REVIEW NOTES — that three chunked runs had passed.
+- `.gitignore`: `agent_planning/execution/_telemetry.jsonl` is now actually ignored (the 2026-09-27 entry documented it as gitignored; it was not).
+
+## 2026-09-30 — opencode V2 CLI compatibility (plan_review.sh `--pure` removed)
+
+Origin: opencode upgraded to V2 (`opencode v2.0.19`). V2 removed the V1 global
+`--pure` flag ("run without external plugins"); `opencode run --pure …` now
+exits 1 with `Unrecognized flag: --pure` and prints help instead of reviewing.
+The wrapper treated the captured help text as non-JSON output, so every R7
+review silently degraded to a `{"error":"non-json-output"}` envelope (first
+noticed in the `blackbox_expansion_wekan_decom` session, which worked around it
+with a manual reviewer invocation).
+
+### Changed
+
+- `scripts/plan_review.sh` — `detect_opencode_cli()` probes the CLI once and
+  builds the invocation for the detected major version: on V1 it keeps
+  `--pure`; on V2 (no such flag) it preserves the "no external plugins" intent
+  with the documented `plugins` control list (`OPENCODE_CONFIG_CONTENT='{"plugins":["*","-*"]}'`),
+  applied to the reviewer invocation only. This also neutralizes any V1-API
+  global plugin that V2 refuses to load (e.g. the configured
+  `@dietrichgebert/ponytail`, which logs a non-fatal load error under V2).
+
+### Verified
+
+- `bash -n scripts/plan_review.sh` → syntax OK; `quality_gate.sh scripts/plan_review.sh` → PASS (shellcheck clean).
+- Live single-file review of `zed_plans/spook_orphan_statistics_purge_2026-09-09.md` → exit 0, grade B / score 78 / 38 findings (real rubric output, not an error envelope).
+- V2 `-f` attachment confirmed to deliver verbatim file contents, including multiple `-f` files in order (exercised by the chunked multi-file path).
+- `scripts/plan_lint.sh` reviewed and confirmed unaffected — it never invokes `opencode`; PASS on `plan_framework_hardening_2026-09-11.md` (phase 1 and `--report-phase2`).

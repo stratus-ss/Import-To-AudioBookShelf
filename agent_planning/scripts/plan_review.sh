@@ -5,9 +5,14 @@
 # this script exits 0 regardless of the reviewer's findings; only invocation
 # failures (opencode missing, plan file missing) exit non-zero.
 #
-# Plans larger than ~48 KB are split into task-aligned chunks and the chunk
-# findings merged, because opencode truncates a single attached file at ~50 KB.
-# Override the threshold with PLAN_REVIEW_MAX_BYTES.
+# Plans larger than ~48 KB are split into task-aligned parts; ALL parts are
+# attached to a SINGLE opencode invocation (multi-file attach, plan parts in
+# order + the self-check output), so one reviewer session sees the whole plan
+# and cross-task contracts stay reviewable. If the multi-file invocation
+# fails, the wrapper falls back to sequential per-part reviews (the
+# pre-2026-09-28 behavior). The split exists because opencode truncates a
+# single attached file at ~50 KB with no CLI override — each PART stays under
+# that per-file limit. Override the threshold with PLAN_REVIEW_MAX_BYTES.
 #
 # Usage:
 #   ./scripts/plan_review.sh <plan.md> [--out <path>] [--model <provider/name>]
@@ -27,9 +32,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUBRIC_FILE="$SCRIPT_DIR/../prompts/plan_review_rubric.md"
 DEFAULT_MODEL="minimax/MiniMax-M3"
 # opencode truncates a single attached file at ~50 KB with no CLI override, so
-# a larger plan is reviewed in task-aligned chunks and the chunk findings are
-# merged. Override with PLAN_REVIEW_MAX_BYTES.
+# a larger plan is split into task-aligned parts, each under the per-file
+# limit, and attached together to one reviewer invocation.
+# Override the split threshold with PLAN_REVIEW_MAX_BYTES.
 MAX_BYTES="${PLAN_REVIEW_MAX_BYTES:-48000}"
+# Per-invocation opencode timeout. The multi-file whole-plan review gets a
+# larger budget (it does the work the sequential parts used to split).
+REVIEW_TIMEOUT_SINGLE=240
+REVIEW_TIMEOUT_MULTI=600
+REVIEW_TIMEOUT="$REVIEW_TIMEOUT_SINGLE"
+
+# opencode CLI compatibility (V1 vs V2). V1 accepted the global `--pure` flag
+# ("run without external plugins"). V2 removed it: `opencode run --pure ...`
+# exits 1 with "Unrecognized flag: --pure" and prints help, which silently
+# broke every review (the wrapper captured the help text as non-JSON output).
+# On V2 the equivalent is the `plugins` config control list: "-*" disables
+# every external plugin, injected for this invocation only via
+# OPENCODE_CONFIG_CONTENT. The arrays are populated once by detect_opencode_cli.
+OC_FLAGS=()
+OC_ENV=()
+detect_opencode_cli() {
+  if opencode --help 2>&1 | grep -q -- '--pure'; then
+    OC_FLAGS=( --pure )                       # V1
+  else
+    OC_ENV=( env OPENCODE_CONFIG_CONTENT='{"plugins":["*","-*"]}' )  # V2
+  fi
+}
 
 PLAN=""
 OUT=""
@@ -93,22 +121,29 @@ if ! command -v opencode >/dev/null 2>&1; then
   exit 1
 fi
 
+# Resolve the V1/V2-specific invocation flags once (see detect_opencode_cli).
+detect_opencode_cli
+
 # ── strip ANSI escape sequences from captured output ───────────────────────
 strip_ansi() {
   sed -E $'s/\x1B\\[[0-9;]*[a-zA-Z]//g; s/\x1B[@_]//g; s/\r$//'
 }
 
 # ── extract a JSON object from captured output; emit a JSON result ──────────
-# Strategy: scan the stripped output for the LAST line that starts with '{'
-# and ends with '}' AND parses as JSON. If none found, emit an error object.
+# Strategy: parse the whole text; else take the FIRST balanced { ... } object;
+# else each non-empty single-line object last-to-first. The balanced scan is
+# required because the reviewer rubric asks for the object TWICE (a fenced
+# block plus a bare echo), so a naive first-{ to last-} span contains both
+# copies and fails to parse ("Extra data").
 extract_json() {
   local raw="$1"
   local stripped
   stripped="$(echo "$raw" | strip_ansi)"
 
   if command -v python3 >/dev/null 2>&1; then
-    # Use python to find the JSON object in the output: try the whole text,
-    # then the first-{ to last-} span, then each non-empty line last-to-first.
+    # Use python to find the reviewer's JSON object: whole text, then the
+    # first balanced object (preferring one with a "grade" key), then
+    # each non-empty line last-to-first.
     local picked
     picked="$(printf '%s' "$stripped" | python3 -c '
 import json, sys
@@ -124,14 +159,54 @@ try:
 except Exception:
     pass
 
-# 2) first { ... last } span (fenced or prose-wrapped output)
-start = text.find("{")
-end = text.rfind("}")
-if start != -1 and end > start:
+# 2) first balanced { ... } object (fenced output, and the rubric s
+#    duplicated "fenced block + bare echo" form which defeats a naive
+#    first-{ to last-} span)
+def balanced_objects(s):
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        instr = False
+        esc = False
+        start = i
+        j = i
+        while j < n:
+            c = s[j]
+            if instr:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == "\"":
+                    instr = False
+            elif c == "\"":
+                instr = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    yield s[start:j + 1]
+                    break
+            j += 1
+        i = j + 1
+
+candidates = []
+for blob in balanced_objects(text):
     try:
-        emit(json.loads(text[start:end + 1]))
+        candidates.append(json.loads(blob))
     except Exception:
         pass
+
+for obj in candidates:
+    if isinstance(obj, dict) and "grade" in obj:
+        emit(obj)
+if candidates:
+    emit(candidates[0])
 
 # 3) each non-empty line, last to first (single-line JSON)
 for line in reversed(text.splitlines()):
@@ -171,11 +246,24 @@ print(json.dumps({"error": "non-json-output",
   fi
 }
 
-# ── single reviewer invocation over one attached file ───────────────────────
+# ── one reviewer invocation over one or more attached plan files ────────────
+# $1 = note appended to the rubric prompt; $2 = optional path to a
+#      deterministic self-check output to also attach (attached LAST);
+#      remaining args = plan file(s) to attach, in order.
+# Uses the REVIEW_TIMEOUT global (single-file callers leave it at
+# REVIEW_TIMEOUT_SINGLE; the multi-file caller raises it).
 review_once() {
-  # $1 = file to attach; $2 = optional note appended to the rubric prompt
-  local file="$1" note="${2:-}" raw rc
-  raw="$(timeout 240 opencode run -m "$MODEL" --pure "$(cat "$RUBRIC_FILE")${note}" -f "$file" 2>&1)" || {
+  local note="${1:-}" selfcheck="${2:-}"
+  shift 2
+  local attach_args=()
+  local f
+  for f in "$@"; do
+    attach_args+=( -f "$f" )
+  done
+  if [[ -n "$selfcheck" && -f "$selfcheck" ]]; then
+    attach_args+=( -f "$selfcheck" )
+  fi
+  raw="$(timeout "$REVIEW_TIMEOUT" "${OC_ENV[@]}" opencode run -m "$MODEL" "${OC_FLAGS[@]}" "$(cat "$RUBRIC_FILE")${note}" "${attach_args[@]}" 2>&1)" || {
     rc=$?
     echo "[plan_review] FAIL — opencode invocation failed (exit $rc)" >&2
     echo "$raw" >&2
@@ -266,47 +354,141 @@ print(json.dumps(merged))
 PYMERGE
 }
 
+# ── run plan_selfcheck.sh once and capture output for the reviewer to read ─
+run_selfcheck() {
+  local selfcheck_script="$SCRIPT_DIR/plan_selfcheck.sh"
+  if [[ ! -x "$selfcheck_script" ]]; then
+    return 1
+  fi
+  local out="$1"
+  bash "$selfcheck_script" "$PLAN" > "$out" 2>&1 || true
+  [[ -s "$out" ]]
+}
+
 # ── main: invoke the reviewer (single call, or chunked for oversize plans) ──
 main() {
   mkdir -p "$(dirname "$OUT")"
   local size review_json
   size=$(wc -c < "$PLAN")
-  if [[ "$size" -le "$MAX_BYTES" ]]; then
-    review_json="$(review_once "$PLAN" "")" || return 1
+
+  # Run the deterministic self-check once; attach the output to every chunk
+  # so the reviewer can defer baseline/enumeration checks to a checked source.
+  local selfcheck_tmp=""
+  selfcheck_tmp="$(mktemp -t plan_review_selfcheck_XXXXXX.txt)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$selfcheck_tmp'" EXIT
+  if run_selfcheck "$selfcheck_tmp"; then
+    echo "[plan_review] attached deterministic self-check (plan_selfcheck.sh)" >&2
   else
-    local tmpd chunks i n p
+    selfcheck_tmp=""
+    echo "[plan_review] WARN — plan_selfcheck.sh unavailable; reviewer will rely on its own runs" >&2
+  fi
+
+  if [[ "$size" -le "$MAX_BYTES" ]]; then
+    local single_note
+    single_note=$'\n\nReviewer session nonce: '"$(date +%s%N)-$RANDOM"
+    review_json="$(review_once "$single_note" "$selfcheck_tmp" "$PLAN")" || return 1
+  else
+    local tmpd chunks
     tmpd="$(mktemp -d)"
     # shellcheck disable=SC2064
-    trap "rm -rf '$tmpd'" EXIT
-    echo "[plan_review] plan is ${size}B (> ${MAX_BYTES}B) — chunked review" >&2
+    trap "rm -rf '$tmpd' '$selfcheck_tmp'" EXIT
+    echo "[plan_review] plan is ${size}B (> ${MAX_BYTES}B) — split into parts, reviewed in ONE multi-file invocation" >&2
     chunks="$(split_plan "$tmpd")" || {
       echo "[plan_review] FAIL — chunking failed" >&2
       return 1
     }
     local paths=()
     mapfile -t paths <<< "$chunks"
-    n="${#paths[@]}"; i=0
-    local json_files=()
-    for p in "${paths[@]}"; do
-      i=$((i + 1))
-      local jf="$tmpd/review_${i}.json"
-      local note=$'\n\nThis is chunk '"$i"' of '"$n"' of a larger plan; review only what is shown and do not penalize omissions that another chunk may cover.'
-      if review_once "$p" "$note" > "$jf"; then
-        json_files+=("$jf")
-      else
-        echo "[plan_review] WARN — chunk ${i}/${n} review failed; continuing" >&2
+    local n="${#paths[@]}"
+    local multi_note
+    multi_note=$'\n\nThe complete plan is attached as '"$n"' files (part 1 through part '"$n"', in attachment order) followed by the deterministic self-check output as the final attachment. Together the parts ARE the whole plan, in order — review it end to end as one plan. Cross-part and cross-task contracts (producer↔consumer value flows, enumeration↔tree call-site sets) are fully visible in this session and MUST be reviewed as ordinary findings; the UNVERIFIED-CROSS-CHUNK exemption does NOT apply.\n\nDeterministic self-check output is attached as a separate file; treat it as authoritative for baseline/enumeration checks it ran. Reviewer session nonce: '"$(date +%s%N)-$RANDOM"
+
+    REVIEW_TIMEOUT="$REVIEW_TIMEOUT_MULTI"
+    local multi_json="$tmpd/review_multi.json" multi_ok=0
+    if review_once "$multi_note" "$selfcheck_tmp" "${paths[@]}" > "$multi_json"; then
+      if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(d,dict) and "grade" in d and "error" not in d else 1)' "$multi_json" 2>/dev/null; then
+        multi_ok=1
       fi
-    done
-    if [[ "${#json_files[@]}" -eq 0 ]]; then
-      echo "[plan_review] FAIL — all chunk reviews failed" >&2
-      return 1
     fi
-    review_json="$(merge_json "$OUT" "${json_files[@]}")"
+    REVIEW_TIMEOUT="$REVIEW_TIMEOUT_SINGLE"
+    if [[ "$multi_ok" -eq 1 ]]; then
+      echo "[plan_review] multi-file whole-plan review succeeded (${n} parts)" >&2
+      review_json="$(cat "$multi_json")"
+    else
+      echo "[plan_review] WARN — multi-file review failed or unparsable; falling back to sequential per-part reviews" >&2
+      local i=0 p json_files=()
+      for p in "${paths[@]}"; do
+        i=$((i + 1))
+        local jf="$tmpd/review_${i}.json"
+        local note
+        note=$'\n\nThis is chunk '"$i"' of '"$n"' of a larger plan; review only what is shown and do not penalize omissions that another chunk may cover — but DO flag cross-artifact contracts (producer↔consumer value flows, enumeration↔tree call-site sets) as findings tagged UNVERIFIED-CROSS-CHUNK with status ADVISORY. An unverified internal enumeration is a real issue, not an invented one.\n\nDeterministic self-check output is attached as a separate file; treat it as authoritative for baseline/enumeration checks it ran. Reviewer session nonce: '"$(date +%s%N)-$RANDOM"
+        if review_once "$note" "$selfcheck_tmp" "$p" > "$jf"; then
+          json_files+=("$jf")
+        else
+          echo "[plan_review] WARN — chunk ${i}/${n} review failed; continuing" >&2
+        fi
+      done
+      if [[ "${#json_files[@]}" -eq 0 ]]; then
+        echo "[plan_review] FAIL — all chunk reviews failed" >&2
+        return 1
+      fi
+      review_json="$(merge_json "$OUT" "${json_files[@]}")"
+    fi
   fi
   printf '%s\n' "$review_json" > "$OUT"
   echo "[plan_review] wrote: $OUT"
+  emit_telemetry "$review_json"
   echo "$review_json"
   return 0
+}
+
+# ── Telemetry hook (Task 11) ──────────────────────────────────────────────
+# Appends one JSONL line per run to agent_planning/execution/_telemetry.jsonl.
+# Local-only append; no network; secrets are never recorded. See TELEMETRY.md.
+emit_telemetry() {
+  local review_json="$1"
+  local project
+  project="$(basename "$(dirname "$OUT")")"   # .../execution/<project>/...
+  local hook_state_writes=1   # we wrote one OUT (review.json)
+  local hook_tool_calls=1     # at minimum one opencode invocation
+  local sink="$SCRIPT_DIR/../execution/_telemetry.jsonl"
+  python3 - "$OUT" "$project" "$MODEL" "$hook_state_writes" "$hook_tool_calls" "$sink" <<'PYTELEMETRY' || true
+import json, os, sys, datetime
+out_path = sys.argv[1]
+project  = sys.argv[2] if sys.argv[2] else "unknown"
+model    = sys.argv[3]
+state_writes = int(sys.argv[4])
+tool_calls   = int(sys.argv[5])
+sink = sys.argv[6]
+try:
+    d = json.load(open(out_path))
+except Exception:
+    d = {}
+fs = d.get("findings", []) or []
+defects = sum(1 for f in fs if f.get("status") == "FAIL")
+record = {
+    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "hook": "plan_review",
+    "project": project,
+    "tier": None,
+    "addendum": None,
+    "model": model or d.get("model", ""),
+    "protocol_lines_read": None,
+    "state_writes": state_writes,
+    "tool_calls": tool_calls,
+    "round_trips": 0,
+    "findings": len(fs),
+    "defects": defects,
+    "deviations": 0,
+    "rework": 1 if "re-review" in (d.get("summary", "") or "").lower() else 0,
+    "recovery_success": defects == 0,
+    "counterfactual": None,
+}
+os.makedirs(os.path.dirname(sink), exist_ok=True)
+with open(sink, "a") as f:
+    f.write(json.dumps(record) + "\n")
+PYTELEMETRY
 }
 main
 exit 0
