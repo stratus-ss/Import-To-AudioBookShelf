@@ -141,7 +141,7 @@ In addition to the universal checklist, verify:
 - [ ] API stages include rate limiting, retry policy, and hard stop on auth failure
 - [ ] VERIFICATION includes file size check and format validation (not just "command exited 0")
 - [ ] Full-batch run is preceded by a small-subset verification run
-- [ ] Every coding task's VERIFICATION includes: CONTEXT7 CHECK, COMPLEXITY CHECK, MAINTAINABILITY CHECK, DRY CHECK, CODE REVIEW
+- [ ] Every coding task's VERIFICATION includes: COMPLEXITY CHECK, MAINTAINABILITY CHECK, DRY CHECK, CODE REVIEW (CONTEXT7 re-query is part of the Code Review task per CQ1)
 - [ ] Plan includes a dedicated Code Review task (per code-quality.md §CQ9) — penultimate for non-deployment plans, immediately before the first deploy/apply task for deployment plans (§CQ9.6 / R6) — tailored to the plan's specific files
 - [ ] Task ordering: non-deployment → implementation → Code Review (N-1) → Doc Update (N); deployment → authoring/testing → Code Review → deploy → Doc Update
 
@@ -244,3 +244,10 @@ The system SHALL <behavior>.
 - [ ] Stage input/output formats are captured as spec scenarios
 - [ ] Idempotency invariants are captured as spec scenarios
 - [ ] Step ordering invariants are captured as spec scenarios
+
+---
+
+## Change-Impact Dependent Discovery
+
+Universal rule: `PLAN_CORE.md §2 Change-Impact Enumeration`. Ecosystem command for this addendum: `rg -n '\bARTIFACT\b|\bFIELD\b|\bSTAGE\b' <pipeline dirs>`; list every downstream stage that consumes the changed artifact.
+

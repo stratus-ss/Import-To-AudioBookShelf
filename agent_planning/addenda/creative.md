@@ -114,3 +114,10 @@ For multi-session content plans, also add:
 - [ ] Devlog location specified
 - [ ] SESSION_BRIEF.md and HANDOFF.md used (from EXECUTION_PROTOCOL §7)
 - [ ] Final review task included after all rewrite tasks
+
+---
+
+## Change-Impact Dependent Discovery
+
+Not applicable — prose has no functional dependents. (Rule: `PLAN_CORE.md §2 Change-Impact Enumeration`.)
+

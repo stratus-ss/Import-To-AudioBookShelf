@@ -38,23 +38,16 @@ When context7 is unavailable:
 - fall back to official docs
 - cite fallback source
 
-**Version resolution (MANDATORY for library / framework rows):** every `Version` value in a Library Context table or `ACCESS` toolchain row MUST be resolved by an actual command at authoring time, not by memory or assumption. Use the package manager's resolving command — `go list -m -versions <module>`, `pip index versions <pkg>`, `npm view <pkg> version`, `cargo search <crate>`, `gem list <gem>`, or the tool's own `--version` flag for binaries — and record the result with a date mark. The string `latest` is a **non-compliant value** for any version cell: it drifts silently between plan authoring and execution, has no reproducibility, and is a hard-fail under the `P8c` lint check (see `plan_lint.sh`). Plans that need the latest behavior describe it in prose ("the current release as of <date>") and still pin a numeric version. The prohibition originates in `deepseek/PLAN_INSTRUCTIONS.md:1389` and is enforced here for all model addenda.
+**Version resolution (MANDATORY for library / framework rows):** every `Version` value in a Library Context table or `ACCESS` toolchain row MUST be resolved by an actual command at authoring time, not by memory or assumption. Use the package manager's resolving command — `go list -m -versions <module>`, `pip index versions <pkg>`, `npm view <pkg> version`, `cargo search <crate>`, `gem list <gem>`, or the tool's own `--version` flag for binaries — and record the result with a date mark. The string `latest` is a **non-compliant value** for any version cell: it drifts silently between plan authoring and execution, has no reproducibility, and is a hard-fail under the `P8c` lint check (see `plan_lint.sh`). Plans that need the latest behavior describe it in prose ("the current release as of <date>") and still pin a numeric version. The prohibition originates in `agent_planning/PLAN_CORE.md §12 Code Quality Gate` and is enforced here for all model addenda.
 
 ### Execution Phase
 
-Before implementing each task:
+The library query happens twice in the plan lifecycle: once at authoring time (per the Plan-Authoring phase above), and once at the Code Review task (where the reviewer re-queries libraries and confirms the implementation still matches). Per-task re-query between authoring and review is not required; doc drift within a single session is negligible.
 
-1. Re-query context7 for task libraries.
-2. Confirm planned usage still matches docs.
-3. Log `API-DRIFT` when implementation diverges from current docs.
+When a per-task re-query IS warranted (a long-paused plan, a task that cites a different library version than the plan's Library Context row, or an externally-pinned dependency that may have moved), the executor re-queries context7 for that task's libraries and logs `API-DRIFT` when implementation diverges from current docs.
 
-Required verification step:
+The per-task review checklist (see `EXECUTION_PROTOCOL.md §9`) keeps the re-query at the Code Review task. The `API-DRIFT` deviation tag is preserved.
 
-```
-CONTEXT7 CHECK:
-  Resolved library IDs and queried for: <libraries>
-  Patterns confirmed match plan: YES / NO (deviation logged if NO)
-```
 
 Library Context format:
 
@@ -141,6 +134,10 @@ Add a **Shared Patterns (DRY Audit)** table in PROJECT CONTEXT:
 
 If multiple tasks need shared logic, include an explicit shared-utility task first.
 
+### Duplicated-value agreement guard
+
+When a value must exist in more than one artifact by architecture — config beside code, stylesheet beside script, documentation beside implementation; any duplication no build step unifies — the plan MUST include a value-anchored guard that pins the artifacts' agreement: extract the value from its canonical artifact and assert it appears in the others. Anchor the guard to the value or a stable identity, never to a line number or surrounding text. This supplements, and never replaces, CQ4's define-once rule; it is not license to duplicate freely.
+
 ### Execution
 
 Run duplication scans before marking done:
@@ -213,14 +210,13 @@ At execution time, every coding task VERIFICATION must include:
 
 ```
 VERIFICATION:
-  1. CONTEXT7 CHECK
-  2. BUILD
-  3. TESTS
-  4. COMPLEXITY CHECK — agent_planning/scripts/quality_gate.sh <paths>
-  5. MAINTAINABILITY CHECK
-  6. DRY CHECK
-  7. CODE REVIEW (EXECUTION_PROTOCOL §9)
-  8. DEVLOG update
+  1. BUILD
+  2. TESTS
+  3. COMPLEXITY CHECK — agent_planning/scripts/quality_gate.sh <paths>
+  4. MAINTAINABILITY CHECK
+  5. DRY CHECK
+  6. CODE REVIEW (EXECUTION_PROTOCOL §9; CONTEXT7 re-query lives here per CQ1 §Execution Phase)
+  7. DEVLOG update
 ```
 
 Before Task 1 on a code-producing plan:
@@ -247,7 +243,7 @@ Wrapper: `agent_planning/scripts/quality_gate.sh [--lang auto|python|go|ts|bash]
 
 ## CQ8. Checklist (extends PLAN_CORE §12)
 
-**Cross-cutting framework rules (R1–R7):** see `PLAN_CORE.md §2 — Cross-cutting framework rules`. Code-producing plans must additionally: R1 confirm any destructive test fixture setup with the operator before apply; R2 drain any job-queued test/CI call with a wall-clock STOP; R3 name the response field schema of every API the plan's tests consume (or carry `⚠️ UNTESTED`); R4 transcribe any testing-skill or framework-skill format/constraints into the plan; R5 record `§12 pass: <n items>` in the plan preamble with every verification-claim item evidence-cited (`✅ VERIFIED via <command> on <date>` or `❌ ASSUMED`) — an item without evidence is not passed; R6 place the Code Review task before the first deploy/apply task for deployment plans (see §CQ9.6); **R7** carry the recorded pre-execution semantic-review line in the plan preamble and resolve any `FAIL` finding before Task 1.
+**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Code-producing plans must additionally satisfy: **R1** confirm destructive test fixture setup with the operator before apply; **R2** drain any job-queued test/CI call with a wall-clock STOP; **R3** name the response field schema of every API the plan's tests consume (or carry `⚠️ UNTESTED`); **R9** run every absolute/negative check against the pre-change tree at authoring and cite the baseline, or scope it to the diff; **R10** anchor static/source-level guards at behaviour or a stable identity, never expression text (re-point and log when a gate-forced refactor moves it); **R13** include `quality_gate.sh --file-budget` in every coding task's VERIFICATION (caps in `addenda/file-budget.md §FB1`).
 
 Plan authoring:
 - [ ] Library Context table present
@@ -257,10 +253,11 @@ Plan authoring:
 - [ ] Maintainability/Fragility constraints in DON'T
 
 Execution:
-- [ ] CONTEXT7 CHECK present
+- [ ] CONTEXT7 query at authoring and at Code Review task (CQ1 §Execution Phase)
 - [ ] COMPLEXITY CHECK present
 - [ ] MAINTAINABILITY CHECK present
 - [ ] DRY CHECK present
+- [ ] File budget enforced — `quality_gate.sh --file-budget` in VERIFICATION (CQ11 / R13)
 - [ ] CODE REVIEW step references EXECUTION_PROTOCOL §9
 
 ---
@@ -283,26 +280,20 @@ Review task must be tailored and include:
 - language-specific complexity command
 - concrete maintainability/DRY scan patterns
 - for EACH applicable §9 category (Security/Ops, Complexity, Maintainability, DRY, Fragility, Context7): at least one concrete verification action in STRUCTURE — either an automated scan command OR an explicit qualitative review instruction. Delegating to §9 "by pointer" without operationalizing each category in STRUCTURE is non-compliant.
+- for every absolute/negative check in STRUCTURE ("returns nothing", "no nested X", "expect 0"), the pre-change baseline command and its authoring-time result — or an explicit `⚠️ UNTESTED (baseline)` mark, or a diff-scoped rewording (R9)
 - CQ9.3 output format (findings table with PASS/FAIL/ADVISORY counts) referenced in STRUCTURE as a required deliverable
+- the R11 remediation clause: the review MAY modify in-scope artifacts from earlier tasks (including their guards) and logs each modification
 
-### CQ9.2 Model Switch Pause Rule (mandatory gate)
+### CQ9.2 Model Switch Pause (opt-in)
 
 Before starting the Code Review task (Task N-1 for non-deployment plans, Task R
 for deployment plans), execution must:
 1. Complete all authoring/implementation/testing tasks
 2. Perform full state writeback
-3. Ask user whether to switch models for review
-4. Wait for explicit response before running review
+3. **Default:** proceed with the current model — a cross-model pass already occurs because the review wrapper's default reviewer model differs from a DeepSeek author.
+4. **Opt-in:** if the operator requests a model switch (one-line), update HANDOFF and stop.
 
-Required gate text:
-
-```
-All implementation tasks complete. Ready for the Code Review task.
-
-Would you like to switch models for the code review?
-  (a) Proceed with current model
-  (b) Switch models — update HANDOFF.md and stop
-```
+This is opt-in, not a mandatory pre-review round-trip. The cross-model review remains in effect by default; the operator may override the model on request.
 
 ### CQ9.3 Required review output
 
@@ -391,3 +382,9 @@ Plan-authoring rules:
 
 Execution rule:
 - If `quality_gate.sh` fails on a new aggregate function, split before marking the task done — do not disable the gate
+
+---
+
+## CQ11. File budget
+
+Enforce the per-language file caps with `agent_planning/scripts/quality_gate.sh --file-budget [modified_paths]` in every coding task's VERIFICATION (additive to the `--lang` complexity invocation). The cap values, the in-file sentinel that authorizes a per-file override, and the exemption list live in `addenda/file-budget.md §FB1`–§FB4 (see also `PLAN_CORE.md §2 R13`); this section does not repeat them. An over-cap file is decomposed, or carries a sentinel whose reason names the plan or issue that justifies it. Enforcement is per-plan: only the plan's named paths are checked.

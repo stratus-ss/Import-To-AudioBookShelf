@@ -1,6 +1,6 @@
 # Plan Authoring — Core Protocol
 
-_Last updated: 2026-09-10_
+_Last updated: 2026-09-26_
 
 This document contains the universal planning discipline that applies to ALL plan types, regardless of domain or model. It is used together with one domain addendum and optionally a model addendum.
 
@@ -285,7 +285,9 @@ A task MUST NOT contain "if X then do Y, if Z then do W" decision trees. The pla
 **Good:**
 - "Delete kvm-api/ entirely — it is superseded by kvm-mcp (confirmed with owner)."
 
-### Cross-cutting framework rules (R1–R7)
+**Allowed fallback form:** an access-gate directive line whose text starts with the literal `If ANY check fails` prefix (for example, `If ANY check fails: mark task BLOCKED with specific evidence. Do NOT deploy.`) is exempt from this rule — it names the canonical access-gate fallback, not a pre-decideable outcome.
+
+### Cross-cutting framework rules (R1–R13)
 
 These rules close non-mechanical gaps that the deterministic lint (P1–P8) cannot catch. They are enforced by the semantic reviewer (R7, DR-2) and by the addenda §checklists.
 
@@ -293,9 +295,15 @@ These rules close non-mechanical gaps that the deterministic lint (P1–P8) cann
 - **R2 Async / job-queued API drain.** A plan consuming an API that returns-before-complete MUST specify poll-until-drained with a wall-clock STOP rule and a per-call timeout.
 - **R3 API result-schema verification.** A plan consuming a collection result MUST name the element schema (field names) or mark `⚠️ UNTESTED` with a runtime dump step.
 - **R4 Referenced skills loaded at authoring.** A task naming a skill MUST transcribe that skill's exact format and constraints into the plan.
-- **R5 §12 self-review non-optional, evidence-cited.** Before declaring a plan done, the author records `§12 pass: <n items>` in the plan preamble, where `n` counts only items whose verification claim carries evidence (`✅ VERIFIED via <command> on <YYYY-MM-DD>`, `❌ ASSUMED`, or `⚠️ STALE`). A single aggregate count command does not satisfy the per-item rule, and an item without evidence does not count as passed. If the plan modifies the checklist it measures (a framework plan), re-record `n` at closeout against the post-change file.
+- **R5 §12 self-review non-optional, evidence-cited.** Before declaring a plan done, every checklist item in §12 must carry evidence (a `✅ VERIFIED via <command> on <YYYY-MM-DD>`, `❌ ASSUMED`, `⚠️ STALE`, or equivalent provenance mark). A single aggregate count command does not satisfy the per-item rule, and an item without evidence does not count as passed. The `plan_lint.sh` R5 §12 coverage check emits the evidence-cited line count as advisory output; the `§12 pass: <n>` preamble number is optional when the lint output is preserved in the devlog. If the plan modifies the checklist it measures (a framework plan), re-record `n` at closeout against the post-change file.
 - **R6 Pre-deployment review gate.** A plan with a deployment/apply phase MUST place the dedicated Code Review task before the first task that mutates live or remote state, and every deployment task MUST gate on the review passing (code-quality.md §CQ9.6). Non-deployment plans keep the penultimate Code Review placement. A source-repo mirror/distribution sync is not a deployment (see §CQ9.6).
-- **R7 Pre-execution semantic review (required, recorded gate).** Before `init_execution_dir.sh` bootstraps (or before Task 1 when bootstrap is skipped), the semantic reviewer runs against the plan and the preamble records a review line naming the reviewer model, date, grade, and finding count. Task 1 is blocked while any finding carries status `FAIL`. The reviewer tool itself stays advisory (non-deterministic output must not hard-block); the recorded-line gate is what makes review required.
+- **R7 Pre-execution semantic review (narrow trigger, recorded gate).** Before `init_execution_dir.sh` bootstraps (or before Task 1 when bootstrap is skipped), the semantic reviewer runs against the plan and the preamble records a review line naming the reviewer model, date, grade, and finding count. Task 1 is blocked while any finding carries status `FAIL`. The reviewer tool itself stays advisory (non-deterministic output must not hard-block); the recorded-line gate is what makes review required. The review is required for Tier 3 plans, and for Tier 2 plans that touch a remote system, a public interface, a schema or migration, secrets, or more than one repo; it is optional for local, non-public, deterministically verified Tier 2 plans. When the review is waived for an exempted Tier 2 plan, the bootstrap records `R7 waived (narrow trigger)` in place of the recorded review line so the gate stays auditable.
+- **R8 Assertable acceptance.** An acceptance criterion MUST be a binary, mechanically checkable assertion — present/absent, exact count, exact string, exit code, or a named fixture. Subjective adjectives ("clean", "correct", "names only", "looks right", "unambiguous") are not criteria. When the criterion describes a rendered or serialized artifact, name the assertion that proves it (e.g. "the `title` column is absent", "the list has 3 entries", "the command exits 0"). If two readers can interpret a criterion differently, it is a defect. Applies to every DON'T, VERIFICATION, and objective success-metric line.
+- **R9 Baseline-verified absolutes.** Any check that asserts an absolute or negative about the tree as-shipped ("returns nothing", "no matches", "expect 0", "is empty", "no nested X", "no duplicates", "must not contain") MUST be run against the pre-change tree at authoring time and its result cited (`✅ VERIFIED ... baseline`, or `⚠️ UNTESTED (baseline)`). If the baseline already violates the absolute, the plan MUST either scope the check to the diff ("no *new* occurrences", "none introduced by this change") or include a task that clears the baseline first. An absolute written without baseline evidence is a defect: it may be unsatisfiable before the plan starts.
+- **R10 Behaviour-anchored tests and guards.** Static or source-level guards (grep/regex assertions, snapshot guards, generated-fixture checks) MUST assert observable behaviour or a stable identity (a function/selector/key/section), never incidental expression text or line numbers. A guard that constrains *how* code is written rather than *what* it does is a defect. When a gate-forced refactor (complexity, format, lint) moves a guarded expression, the guard is re-pointed at the new stable identity in the same change and the re-point is logged; the guard's assertion strength must not be weakened.
+- **R11 Review-remediation authority.** STOP RULES are scoped to the task that carries them. The dedicated Code Review task (Task N-1 / Task R) MAY modify any artifact in its review scope from an earlier task — including that task's tests and guards — to remediate a finding, and MUST log each modification with its justification in the devlog. A cross-task conflict between a STOP RULE and a review finding is resolved in favour of the review: never ship a `FAIL` to satisfy a STOP RULE.
+- **R12 Producer–consumer representation fidelity.** When a task moves a value from where it is produced to a consumer that may expect a different representation (a stored encoding, a serialized form, a level-keyed map, a per-renderer field), the consuming task's CONSTRAINTS MUST quote the consuming site's expected representation with provenance, name the stored-form→consumed-form transformation (or cite the consuming site that proves none is needed), and carry at least one acceptance that feeds the producer's actual output through the real consumer path. Producer-side-only assertions — counts, key names, category labels — do not satisfy this rule when the consumer receives a different shape.
+- **R13 File budget enforcement.** Every coding task that modifies source files MUST include `agent_planning/scripts/quality_gate.sh --file-budget [modified_paths]` in its VERIFICATION (additive to the `--lang` complexity invocation). Caps: JS/TS 800, Go 500, Python 500, Bash 200 (spec: `addenda/file-budget.md §FB1`). An over-cap file is decomposed, or carries an in-file sentinel whose reason names the plan or issue that justifies the override. Enforcement is per-plan: only the plan's named paths are checked, so a plan that does not touch a file never gates it.
 
 ### Inter-task data dependencies
 When a later task depends on data discovered by an earlier task, the plan author MUST NOT defer the values to runtime with placeholders. Instead:
@@ -309,6 +317,28 @@ When a later task depends on data discovered by an earlier task, the plan author
 **Good:**
 - `WHERE na.ip IN ('10.0.0.101', '10.0.0.102', '10.0.0.103')`
 - STOP RULE: "If the ghost IP set from Task 1 differs from this list, stop and report before deleting."
+
+### Change-Impact Enumeration (required for change tasks)
+
+A task that changes an interface, an ordered/structured output, or a guarded branch MUST enumerate the existing dependents of that change at authoring time and paste the evidence into the task's CONSTRAINTS. The author performs the enumeration; the plan carries the result. This one step closes four recurring authoring defects: stale coordinates, unenumerated dependents, unquoted incumbent structure, and untraced branch interaction.
+
+| Change | Required evidence in CONSTRAINTS |
+|--------|----------------------------------|
+| Interface change (any callable signature or parameter meaning, including module-private / unexported functions; exported symbol, API shape, DB column, config key, event/message field, CLI flag) | The pasted dependent listing (search output with match count) plus the call sites the plan updates in the same task or a paired task |
+| Ordered/structured output change (render order, serialization order, stage order, log or section order, document structure) | A verbatim quote of the incumbent order from source, with the required new order stated as equal to it or as an explicit, justified change |
+| New value threaded into an existing guarded branch | A verbatim quote of the receiving guard (the condition that consumes the new value) |
+| Identity asserted by a test, guard, lint rule, or document (element id, config key, symbol name, wire field, CLI flag, file path, storage key) | The pasted listing of the asserting artifacts (search output with match count) plus the same-task update, or the declared interim-stale window — which task repairs the assertion and why a red or misleading suite is permitted in the interval |
+| Replaced or removed behaviour surface (user-visible control, API field, CLI flag, file format, scheduled job) | The enumerated behaviours the old surface provided — including the degenerate / empty case that exercises none of its branches — each mapped to where it lands in the new design or explicitly dropped with rationale |
+| New mutable state (context field, cache, session store, lock, registration table) | The state's create / read / clear paths, plus the existing teardown, reset, and re-entry handlers that reset sibling state; the new state joins those resets in the same task, or the task states why not |
+
+A prose catch-all ("every existing caller…", "all dependents…") is **not** enumeration. The dependent listing must be the verbatim output of a codebase-wide search command, provenance-marked ✅ TESTED so the rerun self-check can re-execute it, with the match count stated. A parameter whose **meaning** changes is a signature change even when the argument count is unchanged, and even on module-private / unexported callables — visibility has nothing to do with blast radius.
+
+Two rules apply to every reference in a plan:
+
+- **Cite mutable artifacts by stable identity, never by volatile coordinates.** Use the function, selector, key, or section name. Never write a line number for source the executor will edit; it drifts on the first edit and a stale coordinate silently misdirects.
+- **Provenance is evidence, not memory.** A `✅ VERIFIED` / `✅ TESTED` mark requires the command output that backs it. Without it, mark `❌ ASSUMED` (§6).
+
+Domain addenda supply only the *discovery command* for their ecosystem; the rule itself is universal.
 
 ### DON'T
 Explicitly list what NOT to do. Always include:
@@ -329,11 +359,10 @@ Every task's VERIFICATION section MUST end with a **DEVLOG** step that updates t
 ```
 DEVLOG: Update agent_planning/execution/<project_name>/devlogs/{name}_{date}.md
   - Add this task's entry to the Execution Log section
-  - Update the Remaining Tasks checklist
   - If this is Task 1, create the devlog file first
 ```
 
-After the devlog update, also perform the EXECUTION_PROTOCOL.md Section 4 writeback: update TASK_QUEUE.md, SESSION_BRIEF.md, and HANDOFF.md.
+After the devlog update, also perform the EXECUTION_PROTOCOL.md Section 4 writeback: update TASK_QUEUE.md and STATE.md.
 
 ### DOC UPDATE (plan-level, MANDATORY)
 
@@ -403,7 +432,7 @@ Each task operates on at most ONE layer. If a feature spans layers, split into s
 - Keep plan introductions concise — every token counts.
 - Plans should stay within the model's practical planning window.
 - For very large plans (>15 tasks, or plans referencing large files), consider splitting into phases for cost predictability.
-- **Large file reference rule:** If any single file referenced by the plan's KEY FILES REFERENCE or CONTEXT sections exceeds 500 lines, the plan MUST include an explicit token budget estimate at the top of the OBJECTIVE section. Format: `Token budget: ~XXX K tokens (plan + N files: file1 L lines, file2 M lines)`.
+- **Large file reference rule:** If any single file referenced by the plan's KEY FILES REFERENCE or CONTEXT sections exceeds 500 lines, the plan MUST include an explicit token budget estimate at the top of the OBJECTIVE section. Format: `Token budget: ~XXX K tokens (plan + N files: file1 L lines, file2 M lines)`. Distinct from the per-language file caps in `addenda/file-budget.md §FB1`, which govern authored files; this rule governs plan token budgets.
 - **Batch-task risk:** When a single task's STRUCTURE describes generating more than 200 lines of output, that task MUST be split into sub-tasks. The risk is attention fragmentation — the model exhausts focus on early details and silently skips later ones.
 
 **Model-specific context window sizes and phasing guidance:** See `deepseek/MODEL_ADDENDUM.md` §D1 or `minimax/MODEL_ADDENDUM.md` §M1.
@@ -429,6 +458,7 @@ Every shell command, API call, query (LogQL, PromQL, SQL), CLI invocation, or co
 | Mark | Meaning |
 |------|---------|
 | `✅ TESTED` | The planner ran this exact command and confirmed it works |
+| `✅ VERIFIED-ABSENT` | The planner ran this exact command and confirmed it returns zero matches / exits non-zero (a tested absence). Recognized by §6 and by the P1 marks regex; deliberately never re-executed by plan_selfcheck --rerun, which treats non-zero exit as failure |
 | `📖 FROM-DOCS` | Copied verbatim from official documentation (cite URL or man page) |
 | `⚠️ UNTESTED` | Synthesized by the planner — executor must validate before relying on output |
 
@@ -437,6 +467,7 @@ Every shell command, API call, query (LogQL, PromQL, SQL), CLI invocation, or co
 - `⚠️ UNTESTED` commands MUST include a verification step in the task that confirms the command works before using its output for subsequent steps.
 - The planner SHOULD test commands when possible. When the planner cannot test (no access to the target host, no API credentials), mark `⚠️ UNTESTED` and add a note explaining why.
 - Query languages (LogQL, PromQL) are especially prone to syntax drift between versions. Always cite the docs version when using `📖 FROM-DOCS`.
+- Commands marked ✅ VERIFIED-ABSENT are exempt from rerun re-execution: a search that correctly returns zero matches exits non-zero, so re-running it would false-fail. Mark a tested absence ✅ VERIFIED-ABSENT, never ✅ TESTED. Lines marked ⚠️ UNTESTED are likewise never re-executed — an UNTESTED line states an expectation, and its ✅ TESTED token, if any, is a baseline quote. ✅ TESTED asserts the command holds against the CURRENT tree (`plan_selfcheck --rerun` re-executes it verbatim in the caller's working directory): quote pre-change state as ✅ VERIFIED, not ✅ TESTED, and give rerun-eligible commands absolute paths (relative ones resolve only from one cwd).
 
 **What this prevents:** Plans with plausible-looking but broken commands (wrong `grafana-server --version` syntax, invalid LogQL label matchers, wrong Pi-hole API endpoints) that the executor discovers only at runtime.
 
@@ -527,13 +558,13 @@ Every plan execution MUST produce a devlog entry. Plans executed without a devlo
 
 ### Context Recovery Principle
 
-The devlog is the authoritative **audit trail and evidence record** — not the primary recovery mechanism. For fast session recovery, the primary context sources are `agent_planning/execution/<project_name>/SESSION_BRIEF.md` and `HANDOFF.md`, per `agent_planning/EXECUTION_PROTOCOL.md`.
+The devlog is the authoritative **audit trail and evidence record** — not the primary recovery mechanism. For fast session recovery, the primary context source is `agent_planning/execution/<project_name>/STATE.md`, per `agent_planning/EXECUTION_PROTOCOL.md`. `TASK_QUEUE.md` is authoritative for remaining tasks; the devlog does not carry a regenerated "Remaining Tasks" checklist.
 
 ### Devlog Lifecycle
 
-1. **CREATE the devlog after the FIRST task completes.** Populate the title, date, Objective section, the first task's execution details, and the Remaining Tasks section immediately.
+1. **CREATE the devlog after the FIRST task completes.** Populate the title, date, Objective section, and the first task's execution details.
 2. **UPDATE the devlog at the END of EACH subsequent task.** Do not batch updates — write them while details are fresh.
-3. **FINALIZE the devlog after all tasks are complete.** Replace the Remaining Tasks section with the Result / Conclusion / Next Steps section.
+3. **FINALIZE the devlog after all tasks are complete.** Replace the placeholder "Remaining Tasks" section with the Result / Conclusion / Next Steps section.
 
 **Enforcement:** Every task in the plan MUST include an explicit DEVLOG step in its VERIFICATION section. A task whose devlog step has not been executed is NOT complete.
 
@@ -566,23 +597,13 @@ One paragraph stating what was done and why.
 | `path/to/file` | What was changed or why it was created |
 
 ## Remaining Tasks
-- [ ] Task N+1: {Name}
-- [ ] Task N+2: {Name}
+_(Replaced at closeout with "Result / Conclusion / Next Steps". The queue is authoritative — see `TASK_QUEUE.md`.)_
 
 ## Result / Conclusion / Next Steps
 (Replaces "Remaining Tasks" when all tasks are finalized.)
 ```
 
-### Remaining Tasks Consistency Rule
-
-The devlog's "Remaining Tasks" checklist MUST be regenerated from `TASK_QUEUE.md` at every update — not manually edited. This prevents drift between the two artifacts.
-
-**Process:**
-1. After updating `TASK_QUEUE.md` (per EXECUTION_PROTOCOL.md Section 4), read it back
-2. Regenerate the devlog's "Remaining Tasks" section from all tasks with status `todo` or `blocked`
-3. When all tasks are `done`/`skipped`, replace the section with "Result / Conclusion / Next Steps"
-
-**Anti-pattern:** Manually maintaining a separate task list in the devlog that diverges from `TASK_QUEUE.md`. The queue is authoritative; the devlog reflects it.
+> The devlog does not carry a regenerated "Remaining Tasks" checklist. `TASK_QUEUE.md` is authoritative; the devlog points at it for remaining tasks. The closeout step replaces this section with "Result / Conclusion / Next Steps".
 
 ### Devlog Location and Naming
 
@@ -598,6 +619,8 @@ agent_planning/execution/<project_name>/devlogs/{descriptive_name}_{YYYY-MM-DD}.
 - For tabular output: the table must be pasted, not summarized
 
 **Enforcement:** The VERIFICATION section in every plan task MUST include: `Copy the exact command output into the devlog. Do NOT paraphrase or abbreviate with '...'.`
+
+**Capture-at-completion (MANDATORY).** Captured output MUST reflect the task's *final* tree. If a task edits a file after capturing a command's output — including a complexity/lint refactor that lands at the end of the task — re-run and re-capture that command before marking the task done. A capture that no longer reproduces against the shipped file is a defect, not a historical record: correct it in the devlog and note the re-capture. This closes the failure where a task refactors a symbol after quoting a search result for it.
 
 ### Deviation Propagation to Repo Artifacts (MANDATORY)
 
@@ -706,14 +729,15 @@ Before submitting any plan, verify:
 - [ ] Naming is specified for all new files/functions/variables
 - [ ] No contradictions between tasks
 - [ ] Verification claims marked with provenance (✅ VERIFIED / ❌ ASSUMED / ⚠️ STALE)
-- [ ] All commands/queries/API calls marked with provenance (✅ TESTED / 📖 FROM-DOCS / ⚠️ UNTESTED)
+- [ ] All commands/queries/API calls marked with provenance (✅ TESTED / ✅ VERIFIED-ABSENT / 📖 FROM-DOCS / ⚠️ UNTESTED)
 - [ ] ⚠️ UNTESTED commands have a verification step before their output is used
+- [ ] Change-impact: every task changing an interface, an ordered output, or a guarded branch pastes its dependent listing / incumbent-shape quote / guard quote into CONSTRAINTS, and no source reference uses a line number (§2 Change-Impact Enumeration)
 
 **Devlog (Section 9)**
 - [ ] Plan specifies devlog filename in `agent_planning/execution/<project_name>/devlogs/`
 - [ ] EVERY task's VERIFICATION section ends with an explicit DEVLOG update step
 - [ ] VERIFICATION sections include instruction to copy-paste exact command output
-- [ ] Devlog "Remaining Tasks" regenerated from TASK_QUEUE.md (not manually maintained)
+- [ ] Devlog does not carry a regenerated "Remaining Tasks" checklist; `TASK_QUEUE.md` is authoritative
 
 **Tier 3 embedding (mandatory for Tier 3 plans)**
 - [ ] `ARCHITECTURE SUMMARY` (End State / Integration Points / Data Flows / Decision Dependencies) embedded as a plan-file section, not chat output
@@ -727,20 +751,30 @@ Before submitting any plan, verify:
 - [ ] `init_execution_dir.sh` home repo named
 - [ ] Downstream blast radius of any sync step named (every repo the sync writes to)
 
-**Cross-cutting framework rules (R1–R7)**
+**Cross-cutting framework rules (R1–R13)**
 - [ ] R1: Destructive ops in the plan include an explicit operator-confirm step between dry-run and apply
 - [ ] R2: Async / job-queued API consumers include poll-until-drained with a wall-clock STOP
 - [ ] R3: Collection results have either a named element schema or a `⚠️ UNTESTED` dump step
 - [ ] R4: Every skill named in a task has its format/constraints transcribed into the task body
-- [ ] R5: Plan preamble contains `§12 pass: <n items>` counting only evidence-cited items (`✅ VERIFIED via <command> on <date>` or `❌ ASSUMED` or `⚠️ STALE`); an aggregate count alone is insufficient, and an item without evidence is not passed; framework plans re-record `n` against the post-change file at closeout
+- [ ] R5: Every §12 checklist item carries evidence (`✅ VERIFIED via <command> on <date>`, `❌ ASSUMED`, `⚠️ STALE`, or equivalent); the `§12 pass: <n>` preamble number is optional when `plan_lint.sh` R5 §12 coverage output is preserved in the devlog. Aggregate-count alone is insufficient; an item without evidence is not passed. Framework plans re-record `n` at closeout against the post-change file.
 - [ ] R6: Deployment plans place the Code Review task before the first deploy/apply task; deploy tasks gate on review pass (CQ9.6)
-- [ ] R7: Pre-execution semantic reviewer ran before bootstrap; preamble carries the review line (reviewer model, date, grade, finding count); no `FAIL` finding remains unresolved
+- [ ] R7: Pre-execution semantic reviewer ran before bootstrap (REQUIRED for Tier 3 plans and for Tier 2 plans that touch a remote system, public interface, schema/migration, secrets, or more than one repo); preamble carries the recorded review line OR the waiver record `R7 waived (narrow trigger)` for an exempted local Tier 2 plan; no `FAIL` finding remains unresolved
+- [ ] R8: Every acceptance criterion is assertable — present/absent, exact count, exact string, exit code, or named fixture; no subjective adjective stands as a criterion
+- [ ] R9: Every absolute/negative check ("returns nothing", "expect 0", "no X") was run against the pre-change tree at authoring and cites the baseline result, or is explicitly scoped to the diff, or the plan clears the baseline first
+- [ ] R10: Source-level/static guards assert behaviour or a stable identity, never incidental expression text or line numbers; guard re-pointing is logged
+- [ ] R11: STOP RULES are task-scoped; the Code Review task may remediate an earlier artifact (guards included) and logs each modification
+- [ ] R12: every producer→consumer value move quotes the consumer's expected representation with provenance, names the stored→consumed transform (or cites the proof none is needed), and carries one acceptance through the real consumer path
+- [ ] R13: every coding task that modifies source files includes `agent_planning/scripts/quality_gate.sh --file-budget [modified_paths]` in its VERIFICATION; over-cap files are decomposed or carry a sentinel whose reason names the justifying plan (caps: `addenda/file-budget.md §FB1`)
+- [ ] Asserted-identity co-scheduling: every task changing an id/key/symbol/flag/path/storage key pastes the asserting-artifact listing and updates it same-task, or declares the stale window
+- [ ] Replaced-surface enumeration: every task removing or replacing a behaviour surface enumerates the old behaviours including the degenerate case, and states where each lands or why it is dropped
+- [ ] State-lifecycle declaration: every task introducing mutable state names its create/read/clear paths and the sibling-reset handlers it joins
 - [ ] Repo-state provenance: every claim about binary names, target hosts/IPs/URIs, file existence, API signatures, or dependency versions carries a `✅ VERIFIED via <command> on <date>` or `❌ ASSUMED` mark (§6)
 
 **Code Quality Gate (code-quality.md — MANDATORY for code-producing plans)**
 - [ ] `code-quality.md` was read before plan authoring (not optional for code plans)
 - [ ] PROJECT CONTEXT declares `language` / `languages`
 - [ ] Every code task's VERIFICATION includes `agent_planning/scripts/quality_gate.sh <paths>` (or the language-specific command it wraps)
+- [ ] Each code task's VERIFICATION includes `agent_planning/scripts/quality_gate.sh --file-budget [paths]` (R13)
 - [ ] Every code task's VERIFICATION includes a DRY scan (`rg '<pattern>' <files>`)
 - [ ] A **Shared Patterns (DRY Audit)** table exists in PROJECT CONTEXT
 - [ ] A dedicated **Code Review** task exists (CQ9.4) — **penultimate** for non-deployment plans, **immediately before the first deploy/apply task** for deployment plans (CQ9.6) — not bundled with docs/OpenSpec — REJECT plan if missing

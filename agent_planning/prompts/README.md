@@ -137,33 +137,35 @@ This is the first session. Before starting Task 1:
    agent_planning/scripts/init_execution_dir.sh <PROJECT_NAME> --plan zed_plans/<PLAN_FILE>.md --require-full-tasks
 4. Open agent_planning/execution/<PROJECT_NAME>/TASK_QUEUE.md and populate
    it with all tasks from the plan
-5. Fill in the Objective and Next Action in SESSION_BRIEF.md
+5. Fill in the Objective and Next Action in STATE.md
 6. Confirm the directory is initialized, then begin Task 1
 
 After each task, perform the Section 4 writeback before proceeding.
 Do not skip writeback when a task fails or is blocked.
 After every code task (and every 3-task sprint): agent_planning/scripts/quality_gate.sh <modified_paths>
 
-CODE REVIEW PAUSE (per code-quality.md §CQ9.2):
+CODE REVIEW (per code-quality.md §CQ9.2 — opt-in model switch):
   When you reach the Code Review task:
   - Complete ALL authoring/implementation/testing tasks first
   - For deployment plans, the Code Review task comes BEFORE the first
     deploy/apply task — do not deploy until the review passes (§CQ9.6 / R6)
   - Perform full state writeback
-  - Announce the model-switch gate and WAIT for user confirmation
-  - Do NOT begin the review task until the user responds
+  - Proceed with the current model by default (the review wrapper's default
+    reviewer model differs from a DeepSeek author, so a cross-model pass
+    already occurs)
+  - If the operator requests a model switch (one-line), update STATE and stop
+    before beginning the review; otherwise start the review immediately
 ```
 
 # Execution — Resume Session
 
 ```
 Read @agent_planning/EXECUTION_PROTOCOL.md
-Read @agent_planning/execution/<PROJECT_NAME>/SESSION_BRIEF.md
-Read @agent_planning/execution/<PROJECT_NAME>/HANDOFF.md
+Read @agent_planning/execution/<PROJECT_NAME>/STATE.md
 Read @agent_planning/execution/<PROJECT_NAME>/TASK_QUEUE.md
 
 Follow the bootstrap sequence in Section 3. Resume from where
-HANDOFF.md says to continue. After each task, perform the
+STATE.md "Next Action" or "Where We Are" says to continue. After each task, perform the
 Section 4 writeback before proceeding.
 ```
 
@@ -171,8 +173,7 @@ Section 4 writeback before proceeding.
 
 ```
 Read @agent_planning/EXECUTION_PROTOCOL.md
-Read @agent_planning/execution/<PROJECT_NAME>/SESSION_BRIEF.md
-Read @agent_planning/execution/<PROJECT_NAME>/HANDOFF.md
+Read @agent_planning/execution/<PROJECT_NAME>/STATE.md
 Read @agent_planning/execution/<PROJECT_NAME>/TASK_QUEUE.md
 
 The previously blocked task is now unblocked because: <REASON>.

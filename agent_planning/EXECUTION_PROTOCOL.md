@@ -2,7 +2,7 @@
 
 _Last updated: 2026-09-10_
 
-This document governs what happens **during and between** execution sessions. It complements the model-specific `PLAN_INSTRUCTIONS.md` files (which govern plan *authoring*) and applies to any agent or model executing a Tier 2 or Tier 3 plan.
+This document governs what happens **during and between** execution sessions. It complements `agent_planning/PLAN_CORE.md` (which governs plan *authoring*) and the matching model addendum (`agent_planning/minimax/MODEL_ADDENDUM.md` or `agent_planning/deepseek/MODEL_ADDENDUM.md`) and applies to any agent or model executing a Tier 2 or Tier 3 plan.
 
 ---
 
@@ -12,8 +12,7 @@ Every Tier 2/3 plan establishes a project execution directory at:
 
 ```
 agent_planning/execution/<project_name>/
-  SESSION_BRIEF.md   -- active state summary (one screen)
-  HANDOFF.md         -- fresh-agent continuation note
+  STATE.md           -- single recovery file (objective, current task, blockers, next action, files in scope, bootstrap pointers, R7 summary)
   TASK_QUEUE.md      -- flattened queue with status
   devlogs/           -- audit trail (one file per session or day)
   artifacts/         -- (optional) runtime state snapshots, large outputs, recovery data
@@ -77,12 +76,11 @@ a crash, or a session boundary, the snapshot is gone. Use the artifacts dir.
 
 | Artifact | Role | Update frequency |
 |----------|------|-----------------|
-| `SESSION_BRIEF.md` | Fast-recovery snapshot: current objective, active task, blockers, next action, files in scope | After every completed or blocked task |
-| `HANDOFF.md` | "A fresh agent reading only this can continue the work" note | After every completed or blocked task |
+| `STATE.md` | Single recovery file: current objective, active task, blockers, next action, files in scope, bootstrap pointers, R7 summary | After every completed or blocked task |
 | `TASK_QUEUE.md` | Authoritative task status list (todo / doing / blocked / done) | After every task status change |
 | `devlogs/<name>.md` | Audit trail: decisions made, evidence gathered, commands run, outcomes | Append after each session |
 
-**The devlog is the audit trail, not the recovery mechanism.** `SESSION_BRIEF.md` and `HANDOFF.md` are the fast-recovery surface. Use the devlog only when the brief is insufficient to reconstruct evidence.
+**The devlog is the audit trail, not the recovery mechanism.** `STATE.md` is the fast-recovery surface. Use the devlog only when `STATE.md` is insufficient to reconstruct evidence.
 
 ---
 
@@ -111,10 +109,9 @@ If `plan_lint.sh` exits non-zero: **do not begin coding**. Fix the plan (CQ9 Cod
 Read in this order before taking any action:
 
 1. Plan file — scan **OBJECTIVE** and the current task section only; do not re-read the full plan
-2. `agent_planning/execution/<project_name>/SESSION_BRIEF.md`
-3. `agent_planning/execution/<project_name>/HANDOFF.md`
-4. `agent_planning/execution/<project_name>/TASK_QUEUE.md` — current task and adjacent items only
-5. Relevant devlog section **only if** the brief/handoff references a specific evidence gap
+2. `agent_planning/execution/<project_name>/STATE.md`
+3. `agent_planning/execution/<project_name>/TASK_QUEUE.md` — current task and adjacent items only
+4. Relevant devlog section **only if** `STATE.md` references a specific evidence gap
 
 Mark the active task as `doing` in `TASK_QUEUE.md` before starting work.
 
@@ -125,9 +122,8 @@ Mark the active task as `doing` in `TASK_QUEUE.md` before starting work.
 After completing or blocking on a task:
 
 1. Update `TASK_QUEUE.md` — set status (`done` / `blocked`), note the blocker if applicable
-2. Rewrite `SESSION_BRIEF.md` — replace entirely with current state (see template below)
-3. Update `HANDOFF.md` — replace the "next action" section with what a fresh agent should do first
-4. Append a devlog entry to `agent_planning/execution/<project_name>/devlogs/`
+2. Rewrite `STATE.md` — replace entirely with current state (see template below); this single file replaces the prior SESSION_BRIEF.md + HANDOFF.md pair
+3. Append a devlog entry to `agent_planning/execution/<project_name>/devlogs/`
 
 Do not skip writeback when a task fails or is blocked. Blocker context is the most valuable state to preserve.
 
@@ -199,10 +195,10 @@ This reduces the agent's action space, makes retries predictable, and keeps the 
 
 ## 7. Templates
 
-### SESSION_BRIEF.md
+### STATE.md
 
 ```markdown
-# Session Brief — <project_name>
+# State — <project_name>
 
 **Updated:** YYYY-MM-DD HH:MM
 
@@ -222,29 +218,25 @@ Exactly what the next agent action should be (specific, not "continue the plan")
 
 ## Files In Scope
 - path/to/file — why it matters
-```
-
-### HANDOFF.md
-
-```markdown
-# Handoff — <project_name>
-
-**Written:** YYYY-MM-DD HH:MM
 
 ## Bootstrap
-Read in order:
-1. zed_plans/<plan_file>.md — OBJECTIVE + Task <N> section only
-2. agent_planning/execution/<project_name>/SESSION_BRIEF.md
+Read in this order:
+1. zed_plans/<plan_file>.md — OBJECTIVE + current task section only
+2. agent_planning/execution/<project_name>/STATE.md
 3. agent_planning/execution/<project_name>/TASK_QUEUE.md
 
 ## Where We Are
 <1-2 sentences: what has been done, what is not done>
 
-## Next Action
-<Specific action — command, file edit, verification step>
-
 ## Known Blockers / Gotchas
 - <any non-obvious constraint the next agent must know>
+
+## R7 Review Summary (when --plan was used)
+- reviewer: <model>
+- grade: <grade>
+- score: <score>
+- findings: <total> (FAIL=<fails>)
+- artifact: <path>
 ```
 
 ### TASK_QUEUE.md
@@ -296,6 +288,16 @@ When execution reveals a planning error — wrong command syntax, incorrect API 
 
 Accumulated deviations across projects inform planning protocol improvements. When the same deviation class appears in 3+ projects, it signals a systemic gap that should be addressed by adding a new rule or checklist item to `PLAN_CORE.md` or the relevant addendum.
 
+A devlog entry claiming "Deviations from plan: none" is valid only if the executor re-read the task's STRUCTURE against the actual diff before writing the claim. Any deviation entry quotes the plan text it deviates from and names what was done instead. Numeric tallies in review tables (findings counts, PASS/FAIL/ADVISORY counts) are recomputed from the table's rows at write time, never recalled.
+
+### Closeout Counterfactual
+
+At the closeout of every plan, the executor answers one counterfactual question and records the answer in the closing devlog entry:
+
+> "Without the framework changes in this plan, what would the plan-execution session have looked like — same shape with more round-trips, or a different shape entirely?"
+
+The answer is the empirical signal for whether the framework change moved the needle on its claimed cost. The framework's telemetry hooks (`agent_planning/scripts/plan_review.sh`, `init_execution_dir.sh`) also append one JSONL line per run to `agent_planning/execution/_telemetry.jsonl` (see `agent_planning/TELEMETRY.md`); the counterfactual closes the loop between the telemetry and the closeout narrative.
+
 ---
 
 ## 9. Code Review Checkpoint
@@ -340,7 +342,7 @@ When a plan produces executable code (shell scripts, Docker Compose files, Ansib
 - [ ] Timeouts set on all network operations
 
 #### Context7 (per code-quality.md §CQ1)
-- [ ] Executor re-queried context7 for each library before implementing
+- [ ] Library query happens at authoring time and at the Code Review task (CQ1 re-queried there); per-task re-query is not required.
 - [ ] Implemented patterns match current library documentation
 - [ ] Any deviation from planned patterns logged with API-DRIFT tag
 
@@ -377,12 +379,42 @@ gate between authoring and deployment — not a final cleanup step. See
 3. **No deployment task may start until the review passes.** If the review
    returns FAIL findings, resolve them and re-review before deploying. Each
    deployment task's CONSTRAINTS carries this gate.
-4. The Model Switch Pause (CQ9.2) applies at this gate exactly as it does for a
-   penultimate review.
+4. The Model Switch Pause (CQ9.2) is opt-in at this gate exactly as it is for a
+   penultimate review — proceed with the current model by default; switch only
+   on operator request.
 5. Non-deployment plans keep the penultimate Code Review placement (CQ9.4).
 
 `plan_lint.sh` check **P7** fails a deployment plan whose Code Review task does
 not precede its first deploy/apply task.
+
+### Review Remediation & Guard Re-pointing (R10 / R11)
+
+The Code Review task is the last chance to fix the code before it ships, so its
+authority to edit is broader than a normal task's:
+
+1. **STOP RULES are task-scoped.** A "do not modify X" STOP RULE in an earlier
+   task binds that task, not a later Code Review task in its review scope. The
+   review MAY edit any in-scope artifact from an earlier task — including that
+   task's tests and guards — to remediate a finding. Log every such edit with
+   its justification in the devlog (R11). Never ship a `FAIL` to honour a STOP
+   RULE.
+2. **Guard re-pointing.** When a gate-forced refactor (complexity/format/lint)
+   moves an expression that a source-level guard pins, re-point the guard at the
+   new stable identity in the same change and log the re-point. Preserving a
+   guard's *text* at the cost of a gate pass, or weakening its assertion to keep
+   a refactor, is a defect (R10). Behaviour or a stable identity is the anchor;
+   expression text and line numbers are not.
+3. **Guard co-scheduling.** When any change invalidates a guard's anchor — an
+   id, key, symbol, flag, path, or storage key a test, lint rule, or document
+   asserts — update the asserting artifact in the same task as the invalidating
+   change, or record the plan's declared stale window. This extends the existing
+   gate-forced-refactor re-pointing rule to any invalidating change.
+4. **Capture at completion.** A devlog command capture must reflect the task's
+   final tree. If a task edits a file after capturing output, re-run and
+   re-capture before marking done (PLAN_CORE §9 Verification Integrity Rule).
+5. **Run every guard that reads any file this task touched — not only the guards
+   the task's VERIFICATION lists.** Co-scheduling means a guard outside the
+   task's own list may still fire on an edited file; the executor runs it.
 
 ---
 

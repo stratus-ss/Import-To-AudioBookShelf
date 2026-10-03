@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-02 — File budget protocol (R13, addenda/file-budget.md)
+
+Origin: the `D&D_Workflow` `dnd_battle_js_decompose_2026-10-01` plan's DR-3 recorded that a spec scenario stated `battle.js ≤400` but no gate enforced it — the file grew to **2454 lines** before the plan shipped a project-local `battle_modules_selfcheck.mjs`. This release lifts the per-project selfcheck to a framework rule: a per-plan, per-language file cap with an in-file sentinel override and a hard-fail gate. Plan-of-record: `zed_plans/file_budget_protocol_2026-10-02.md` (Tasks 1–9). Propagates downstream via the operator-gated `scripts/sync_protocol.sh`, now registering all 11 framework mirrors.
+
+### Added
+
+- `addenda/file-budget.md` — NEW cross-cutting addendum (§FB1–§FB7): per-language caps (JS/TS 800, Go 500, Python 500, Bash 200), the in-file sentinel syntax and regex, the exemption list (tests / generated / vendored / VCS metadata), the gate behavior contract, the checklist, and the enforcement invocation.
+- `PLAN_CORE.md §2` — new cross-cutting rule **R13 File budget enforcement**: every coding task that modifies source files includes `quality_gate.sh --file-budget [modified_paths]` in VERIFICATION; over-cap files are decomposed or carry a sentinel whose reason names the justifying plan. §12 checklist adds the R13 bullet and a Code Quality Gate row; §5 gains a cross-link distinguishing per-file caps from plan token budgets.
+- `addenda/code-quality.md §CQ11. File budget` — short section pointing at `addenda/file-budget.md`, plus a §CQ8 checklist row.
+- `scripts/quality_gate.sh --file-budget` — new mode: path-scoped, extension-mapped, sentinel-aware, skip-aware, hard-fail on cap exceed (`run_file_budget` + `is_skipped`). Orthogonal to `--lang`; directories are walked recursively; unmapped extensions are silent.
+- In-file sentinel `// file-budget: [N] — [reason]` (Go/TS/JS) / `# file-budget: [N] — [reason]` (Python/Bash), read from the first 50 lines; declared budget replaces the language default and is `INFO`-reported.
+- `scripts/test/file_budget_selfcheck.sh` + `scripts/test/fixtures/file_budget/` — canonical-only self-test asserting the decision matrix (over-cap FAIL, within-budget sentinel PASS+INFO, declared-budget-exceeded FAIL, late-sentinel ignored → FAIL, exempt silent).
+
+### Changed
+
+- `PLAN_CORE.md`, `addenda/{code-quality,software,automation,infrastructure}.md`, `prompts/plan_review_rubric.md` — R-range headers/paragraphs rename `(R1–R12)` → `(R1–R13)`; the rubric gains an R13 semantic-check bullet.
+- `addenda/INDEX.md` — new `file-budget` selection-table row, a "File-Budget Addendum — When to Read" subsection, and a discovery command.
+- `AGENTS.md` — the step-3 code-gate line names both `addenda/code-quality.md` and `addenda/file-budget.md`.
+- `scripts/sync_protocol.sh` — `KNOWN_REPOS` extended with the four unregistered full-mirror repos (`htpc-desktop`, `garmin-influxdb`, `mtv-parser`, `pfsense-to-opnsense-api`); the legacy root `sync_protocol.sh` carries a deprecation banner.
+- Mirror sync: the canonical framework is distributed to all 11 agent_planning-equipped repos via the operator-gated `scripts/sync_protocol.sh` (source distribution, not a runtime deployment).
+
 ## 2026-09-26 — Truth-gap remediation (R12, enumeration wording, absence mark, count-compare, rubric)
 
 Origin: a human-grade review of the `dnd_battle_spell_flow` plan (D&D_Workflow) found two cross-boundary defects the gates missed — a producer/consumer representation mismatch and an incomplete call-site enumeration on module-private functions; root-cause analysis lives in the D&D_Workflow repo at `tmp/planning_protocol_spellbook_fix.md`. A parallel proposal (`tmp/battle_spell_plan_updates.md`, D&D_Workflow) harvested a seven-rule package from the same execution; four rules were folded in here, two were rejected as duplicates of `code-quality.md §CQ6` / `§CQ10` and the duplication recorded there. The fix lands in the canonical framework at `~/git_projects/scratch_pad/agent_planning/` and propagates downstream via the operator-gated `sync_protocol.sh` (R1). Plan-of-record: `zed_plans/protocol_truth_gaps_2026-09-26.md` (Tasks 1–8 + late-ingested Tasks 9–10 for the 2026-09-26 addendum `tmp/augment_protocol_truth_gaps.md`).

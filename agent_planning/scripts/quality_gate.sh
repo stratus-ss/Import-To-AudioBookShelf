@@ -5,15 +5,27 @@
 # Usage:
 #   ./scripts/quality_gate.sh <path> [path...]
 #   ./scripts/quality_gate.sh --lang auto|python|go|ts|bash <path> [path...]
+#   ./scripts/quality_gate.sh --file-budget <path> [path...]
 #   ./scripts/quality_gate.sh --info-radon <python-path...>   # radon informational only
+#
+# File budget (--file-budget):
+#   Enforces the per-language line caps from addenda/file-budget.md:
+#   JS/TS 800, Go 500, Python 500, Bash 200. Directories are walked
+#   recursively; test / generated / vendored files are skipped silently.
+#   A file may declare its own budget with a sentinel comment placed in its
+#   first 50 lines, written as  // file-budget: [N] — [reason]  (Go/TS/JS)
+#   or  # file-budget: [N] — [reason]  (Python/Bash).
 #
 # Exit codes:
 #   0 — PASS
-#   1 — FAIL (complexity / tool error)
+#   1 — FAIL (complexity / tool error / file over its budget)
 
 set -euo pipefail
 
+# file-budget: 350 — framework quality gate; four language detectors plus run_file_budget; spec in addenda/file-budget.md
+
 LANG_MODE="auto"
+FILE_BUDGET=0
 INFO_RADON=0
 PATHS=()
 
@@ -28,8 +40,9 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --info-radon) INFO_RADON=1; shift ;;
+    --file-budget) FILE_BUDGET=1; shift ;;
     -h|--help)
-      sed -n '2,16p' "$0" | sed 's/^# \?//'
+      awk 'NR==1 {next} /^#/ {sub(/^# ?/,""); print; next} {exit}' "$0"
       exit 0
       ;;
     *)
@@ -59,10 +72,10 @@ detect_lang() {
     *.sh|*.bash) echo bash ;;
     *)
       if [[ -d "$path" ]]; then
-        if compgen -G "$path/*.py" >/dev/null; then echo python
-        elif compgen -G "$path/*.go" >/dev/null; then echo go
-        elif compgen -G "$path/*.{ts,tsx,js,jsx}" >/dev/null 2>&1 || compgen -G "$path/*.ts" >/dev/null; then echo ts
-        elif compgen -G "$path/*.sh" >/dev/null; then echo bash
+        if find "$path" -name '*.py' -print -quit 2>/dev/null | grep -q .; then echo python
+        elif find "$path" -name '*.go' -print -quit 2>/dev/null | grep -q .; then echo go
+        elif find "$path" \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) -print -quit 2>/dev/null | grep -q .; then echo ts
+        elif find "$path" -name '*.sh' -print -quit 2>/dev/null | grep -q .; then echo bash
         else echo unknown
         fi
       else
@@ -118,7 +131,7 @@ run_ts() {
     return
   fi
   echo "[quality_gate] ts: eslint complexity≤15 on $target"
-  if npx --yes eslint --no-eslintrc --rule 'complexity: ["error", 15]' "$target"; then
+  if npx --yes eslint --no-config-lookup --max-warnings 0 --rule 'complexity: ["error", 15]' "$target"; then
     pass "eslint complexity clean: $target"
   else
     fail "eslint complexity exceeded in $target"
@@ -140,9 +153,78 @@ run_bash() {
   info "Bash branch budget (≤15) remains a manual CONSTRAINTS check"
 }
 
+# --- File-budget mode (R13 / addenda/file-budget.md) -----------------------
+
+# Skip tests, generated files, vendored trees, and VCS metadata.
+# Returns 0 (skip) / 1 (do not skip).
+is_skipped() {
+  local path="$1"
+  local base
+  base="$(basename "$path")"
+  case "$path" in
+    */.git/*|.git/*) return 0 ;;
+  esac
+  case "$path" in
+    */vendor/*|vendor/*|*/node_modules/*|node_modules/*) return 0 ;;
+    */third_party/*|third_party/*|*/.venv/*|.venv/*) return 0 ;;
+    */venv/*|venv/*|*/__pycache__/*|__pycache__/*) return 0 ;;
+    */dist/*|dist/*|*/build/*|build/*|*/out/*|out/*) return 0 ;;
+    */.next/*|.next/*|*/target/*|target/*) return 0 ;;
+  esac
+  case "$base" in
+    *_test.go|*_test.py|test_*.py|conftest.py) return 0 ;;
+    *.test.ts|*.test.tsx|*.test.js|*.test.jsx) return 0 ;;
+    *.spec.ts|*.spec.tsx|*.spec.js|*.spec.jsx) return 0 ;;
+    *.gen.go|*.gen.ts|*.gen.js|*_pb2.py|*_pb2_grpc.py) return 0 ;;
+    *.pb.go|*.pb.ts) return 0 ;;
+  esac
+  return 1
+}
+
+run_file_budget() {
+  local path="$1"
+  local SENTINEL_RE='^\s*(//|#)\s*file-budget:\s*(\d+)\s*—\s*(.+)$'
+  local cap="" count="" sentinel_line="" declared=""
+  if is_skipped "$path"; then
+    return
+  fi
+  case "$path" in
+    *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs) cap=800 ;;
+    *.go) cap=500 ;;
+    *.py) cap=500 ;;
+    *.sh|*.bash) cap=200 ;;
+    *) return ;;
+  esac
+  count="$(wc -l < "$path" | tr -d '[:space:]')"
+  sentinel_line="$(head -50 "$path" | rg -m 1 "$SENTINEL_RE" || true)"
+  if [[ -n "$sentinel_line" ]]; then
+    declared="$(printf '%s\n' "$sentinel_line" | rg -o -r '$2' "$SENTINEL_RE" || true)"
+  fi
+  if [[ -n "$declared" ]]; then
+    cap="$declared"
+    info "$path sentinel $declared honored; file is $count lines"
+  fi
+  if [[ "$count" -gt "$cap" ]]; then
+    fail "file $path is $count lines (cap $cap); add a file-budget sentinel ($cap for Go/TS/JS via //, Python/Bash via #) or decompose"
+  else
+    pass "file budget ok: $path ($count/$cap lines)"
+  fi
+}
+
 for path in "${PATHS[@]}"; do
   if [[ ! -e "$path" ]]; then
     fail "path does not exist: $path"
+    continue
+  fi
+
+  if [[ "$FILE_BUDGET" -eq 1 ]]; then
+    if [[ -d "$path" ]]; then
+      while IFS= read -r fp; do
+        run_file_budget "$fp"
+      done < <(find "$path" -type f 2>/dev/null)
+    else
+      run_file_budget "$path"
+    fi
     continue
   fi
 

@@ -15,6 +15,7 @@
 #   0 — PASS
 #   1 — FAIL (non-compliant plan)
 
+# file-budget: 1000 — framework plan structural gate; P1–P8 + R5 + CQ9 + R7 check phases; sentinel example documented in addenda/file-budget.md
 set -euo pipefail
 
 REQUIRE_FULL=0
@@ -695,6 +696,9 @@ if [[ "$REPORT_PHASE2" -eq 1 ]]; then
     if ! echo "$body" | rg -q 'DRY (CHECK|scan)|rg .*duplicate|Shared Patterns'; then
       out="${out:+$out }DRY scan"
     fi
+    if ! echo "$body" | rg -q 'MAINTAINABILITY CHECK|maintainability[[:space:]]+(scan|check)'; then
+      out="${out:+$out }MAINTAINABILITY"
+    fi
     # CONTEXT7 required only when the task names a library.
     if echo "$body" | rg -qi '\bimport\b|\brequire\b|\buse\b|npm[[:space:]]+(install|view)|pip[[:space:]]+install|go[[:space:]]+list|context7' \
        && ! echo "$body" | rg -q 'CONTEXT7[[:space:]]+CHECK'; then
@@ -772,7 +776,7 @@ fi
 check_provenance() {
   local commands_regex
   commands_regex='\b(curl|ssh|sqlite3|opencode|python[0-9.]*|docker|rg|git|scp|nmap)\b|\{"type":'
-  local marks_regex='✅ TESTED|📖 FROM-DOCS|⚠️ UNTESTED'
+  local marks_regex='✅ VERIFIED-ABSENT|✅ VERIFIED|✅ TESTED|📖 FROM-DOCS|⚠️ UNTESTED'
   local found_any=0
   local unmarked=0
   local prev=""
@@ -806,6 +810,15 @@ check_provenance() {
 check_provenance
 
 # ── P2: no conditional-branch phrases in task bodies ────────────────────────
+# Narrowed 2026-09-27: catches only the genuine decision-branch shape (leading
+# "If <condition>," followed by a consequence) plus the three standalone
+# alternatives (`or equivalent`, `whichever`, `one of`). The lint no longer
+# rejects lowercase `if`, `else`, or `either` mid-sentence — those appear in
+# rules and prose without describing a decision branch.
+#
+# Canonical fallback directive is exempt: a line whose text starts with the
+# literal `If ANY check fails` prefix is the protocol's allowed access-gate
+# fallback form and must not be flagged.
 check_no_conditionals() {
   local first_task_line
   first_task_line="$(rg -n '^#{2,3}[[:space:]]+Task[[:space:]]+[0-9]+' "$PLAN" | head -1 | cut -d: -f1 || true)"
@@ -815,7 +828,7 @@ check_no_conditionals() {
   fi
 
   local hits
-  hits="$(rg -n '\bif\b|\belse\b|or equivalent|either|whichever|one of' "$PLAN" \
+  hits="$(rg -n '^[Ii]f [^,:]+,\s+\S|^[[:space:]]*[-*][[:space:]]+[Ii]f [^,:]+,\s+\S|\bor equivalent\b|\bwhichever\b|\bone of\b' "$PLAN" \
     | awk -F: -v start="$first_task_line" '$1 >= start' || true)"
   if [[ -z "$hits" ]]; then
     pass "P2: no conditional-branch phrases in task bodies"
@@ -823,6 +836,10 @@ check_no_conditionals() {
   fi
   while IFS= read -r hit; do
     [[ -z "$hit" ]] && continue
+    local body="${hit#*:*:}"
+    if [[ "$body" =~ ^[[:space:]]*[Ii]f[[:space:]]+ANY[[:space:]]+check[[:space:]]+fails ]]; then
+      continue
+    fi
     fail "P2: conditional phrase in task body: $hit"
   done <<< "$hits"
 }
@@ -850,6 +867,34 @@ check_no_placeholders() {
   done <<< "$hits"
 }
 check_no_placeholders
+
+# ── R5 §12 coverage (advisory) ─────────────────────────────────────────────
+# Counts plan lines that look like checklist rows carrying both an evidence
+# mark and a date. R5 (PLAN_CORE §2) requires every checklist item to carry an
+# evidence-cited claim. The lint emits the count as a one-line PASS output so
+# authors no longer hand-typed `§12 pass: <n>` over a 75-to-111 box stack. This
+# is advisory — it never increments FAILS. Reuses the same evidence-mark token
+# set as `check_provenance`; framework plans re-record `n` at closeout.
+check_r5_coverage() {
+  local marks_regex='✅ VERIFIED-ABSENT|✅ VERIFIED|✅ TESTED|📖 FROM-DOCS|⚠️ UNTESTED|❌ ASSUMED|⚠️ STALE'
+  local date_regex='20[0-9]{2}-[0-9]{2}-[0-9]{2}'
+  local lines
+  lines="$(rg -n -- "${marks_regex}" "$PLAN" 2>/dev/null || true)"
+  if [[ -z "$lines" ]]; then
+    pass "R5 §12 coverage: 0 evidence-cited lines (advisory)"
+    return
+  fi
+  local cited=0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local content="${line#*:*:}"
+    if [[ "$content" =~ $date_regex ]]; then
+      cited=$((cited + 1))
+    fi
+  done <<< "$lines"
+  pass "R5 §12 coverage: ${cited} evidence-cited lines (advisory)"
+}
+check_r5_coverage
 
 echo ""
 if [[ "$FAILS" -gt 0 ]]; then

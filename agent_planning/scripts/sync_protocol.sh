@@ -13,6 +13,8 @@
 
 set -euo pipefail
 
+# file-budget: 260 — framework sync tool; file list + repo registry + verification pass; sentinel example documented in addenda/file-budget.md
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANONICAL="$(dirname "$SCRIPT_DIR")"   # agent_planning/ root
 GIT_PROJECTS="${GIT_PROJECTS_ROOT:-$HOME/git_projects}"
@@ -54,10 +56,14 @@ CANONICAL_DIRS=(
 # an agent_planning/ subdirectory.
 KNOWN_REPOS=(
   "D&D_Workflow"
+  "garmin-influxdb"
+  "htpc-desktop"
   "infra-playbooks"
   "monkeyplug"
+  "mtv-parser"
   "OpenAudible-To-AudioBookShelf"
   "openshift-sv-tools-dev"
+  "pfsense-to-opnsense-api"
   "scratch_pad"
   "silverblue-desktop"
   "Whisper-WebUI"

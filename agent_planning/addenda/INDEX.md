@@ -1,6 +1,6 @@
 # Plan Addenda Index
 
-_Last updated: 2026-07-28_
+_Last updated: 2026-09-12_
 
 After reading `PLAN_CORE.md`, select ONE addendum based on your project's primary domain. Read it in full before authoring any tasks.
 
@@ -20,6 +20,8 @@ After reading `PLAN_CORE.md`, select ONE addendum based on your project's primar
 | **pipeline** | `addenda/pipeline.md` | EPUB, TTS, Whisper, transcription, audio, media batch, scraping, ETL, data export | The primary artifact is transformed content flowing through processing stages |
 | **creative** | `addenda/creative.md` | Blog posts, technical articles, documentation narratives, editorial rewrites, README prose, release notes, presentation scripts | The primary artifact is written content — reduced ceremony, simplified interview |
 | **code-quality** | `addenda/code-quality.md` | (cross-cutting — read alongside domain addendum) | ANY plan that produces executable code. Required for software/pipeline (always), automation (function nodes), infrastructure (scripts/playbooks). Exempt: creative, pure config-only infra. |
+| **file-budget** | `addenda/file-budget.md` | (cross-cutting — read alongside domain addendum) | ANY plan that authors or modifies source files. Enforces per-language line caps (spec §FB1) via `quality_gate.sh --file-budget`. Exempt: creative, pure-doc plans. |
+| **ponytail** | `addenda/ponytail.md` | (cross-cutting — read when the OpenCode Ponytail plugin is active) | ANY plan authored or executed where `@dietrichgebert/ponytail` is registered in `~/.config/opencode/opencode.json`. Establishes "rung 0": framework MUSTs outrank Ponytail's YAGNI ladder. Skip if the plugin is absent. |
 
 ---
 
@@ -36,6 +38,40 @@ The `code-quality` addendum is cross-cutting — it applies alongside the domain
 | creative | NEVER | Narrative content is exempt |
 
 **Rule:** When in doubt, read it. The cost of reading an addendum you don't need is lower than discovering at code review that you should have.
+
+---
+
+### Ponytail Addendum — When to Read
+
+The `ponytail` addendum is cross-cutting — it applies alongside the domain
+addendum whenever the OpenCode Ponytail plugin is active. The plugin injects a
+YAGNI/minimalism ruleset into every chat and subagent; the addendum defines the
+"rung 0" carve-out so protocol-mandated work (plan structure, devlog, KB
+writeback, persistence, quality and security gates) is never dropped as
+"unnecessary." Read it when:
+
+- The plan is authored or executed in an environment where the plugin is
+  registered (check: `jq '.plugin[]?' ~/.config/opencode/opencode.json`).
+- You detect the Ponytail ruleset in your own system context, or a conflict
+  between a framework `MUST` and the YAGNI ladder.
+
+Skip it when the plugin is absent — Ponytail is an accelerator, not a framework
+dependency, and no plan should assume it exists.
+
+---
+
+### File-Budget Addendum — When to Read
+
+The `file-budget` addendum is cross-cutting — it applies alongside the domain
+addendum for any plan that authors or modifies source files. Read it when:
+
+- The plan creates or edits `.js`/`.ts`/`.go`/`.py`/`.sh` (or `.jsx`/`.tsx`/
+  `.mjs`/`.cjs`/`.bash`) files.
+- A file approaches or exceeds its language cap and needs an in-file sentinel
+  override.
+
+It pairs with `code-quality.md`: code-quality governs per-function complexity,
+file-budget governs per-file size. Skip it for creative and pure-doc plans.
 
 ---
 
@@ -85,6 +121,10 @@ ls agent_planning/addenda/
 
 # Check if specs already exist for your codebase (software and pipeline only)
 ls agent_planning/openspec/specs/ 2>/dev/null || echo "No specs yet"
+
+# Enforce per-language file caps on the paths a plan touches (file-budget addendum)
+agent_planning/scripts/quality_gate.sh --file-budget [paths]
+# Example: agent_planning/scripts/quality_gate.sh --file-budget scripts/ src/
 ```
 
 ---

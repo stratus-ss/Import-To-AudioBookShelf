@@ -1,6 +1,6 @@
 # Plan Addendum — Software Development
 
-_Last updated: 2026-09-10_
+_Last updated: 2026-09-26_
 
 Applies to: Go/Python/TypeScript/Bash application code, MCP servers, CLI tools, libraries, scripts with behavioral logic, test suites, API clients, refactors.
 
@@ -265,9 +265,8 @@ Before authoring any task that uses a library or framework:
 
 1. **Query context7** for each library's current API, idiomatic patterns, and anti-patterns
 2. **Embed findings** in the task's CONTEXT section as a Library Context citation
-3. **Include context7 check** in each task's VERIFICATION section
 
-The plan's PROJECT CONTEXT MUST include a Library Context table (see `code-quality.md §CQ1` for format). If context7 is unavailable, mark it `⚠️ UNTESTED (context7 unavailable)` and fall back to official docs.
+The library query happens at authoring time and again at the Code Review task (per code-quality.md §CQ1); per-task re-query between authoring and review is not required (CQ1 §Execution Phase). When `⚠️ UNTESTED (context7 unavailable)`, fall back to official docs and cite the fallback.
 
 ---
 
@@ -275,7 +274,7 @@ The plan's PROJECT CONTEXT MUST include a Library Context table (see `code-quali
 
 In addition to the universal checklist, verify:
 
-**Cross-cutting framework rules (R1–R7):** see `PLAN_CORE.md §2 — Cross-cutting framework rules`. The deterministic P-rules in `agent_planning/scripts/plan_lint.sh` enforce the structural surface; the R-rules close the non-mechanical gaps (operator gate, async drain, schema verify, skill transcription, §12 self-review, pre-deployment review gate, **R7 pre-execution semantic-review gate**) that lint cannot catch. Author must satisfy both layers.
+**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. This addendum's surface is caught by the deterministic P-rules in `agent_planning/scripts/plan_lint.sh` (structural surface); R-rules close the non-mechanical gaps. Author must satisfy both layers. Domain-specific software-plan triggers belong in CONTEXT / DON'T / VERIFICATION per task.
 
 **Plan-Authoring:**
 - [ ] `addenda/code-quality.md` has been read in full before authoring tasks
@@ -294,15 +293,24 @@ In addition to the universal checklist, verify:
 - [ ] Fragility rules (input validation, error handling) in every coding task's DON'T
 - [ ] CQ10 decomposition CONSTRAINTS present for multi-check / aggregate evaluators
 - [ ] `plan_lint.sh [--require-full-tasks] <plan.md>` passes before Task 1
-- [ ] R7 pre-execution semantic-review gate: preamble carries the recorded review line (reviewer model, date, grade, finding count); no `FAIL` finding unresolved before Task 1
+- [ ] R7 pre-execution semantic-review gate (narrow trigger per PLAN_CORE §2): Tier 3 plans and Tier 2 plans touching a remote system, public interface, schema/migration, secrets, or more than one repo MUST carry a recorded review line (reviewer model, date, grade, finding count); exempted local Tier 2 plans record `R7 waived (narrow trigger)` instead; no `FAIL` finding unresolved before Task 1
 
 **Execution VERIFICATION:**
 - [ ] VERIFICATION includes test suite execution (`go test ./...` or `pytest`), not just build/import checks
 - [ ] Plans adding/modifying production-facing entrypoints (MCP tools, CLI commands, APIs) include dedicated functional testing task (production protocol, happy + error path)
 - [ ] No new packages/imports added without explicit CONSTRAINTS entry
 - [ ] If containerized: final task includes production image verification (or states explicit exemption)
-- [ ] Every coding task's VERIFICATION includes: CONTEXT7 CHECK, `quality_gate.sh` COMPLEXITY CHECK, MAINTAINABILITY CHECK, DRY CHECK, CODE REVIEW
+- [ ] Every coding task's VERIFICATION includes: `quality_gate.sh` COMPLEXITY CHECK, MAINTAINABILITY CHECK, DRY CHECK, CODE REVIEW (CONTEXT7 re-query is part of the Code Review task per CQ1)
 - [ ] Plan includes a dedicated Code Review task (per code-quality.md §CQ9) — penultimate for non-deployment plans, immediately before the first deploy/apply task for deployment plans (§CQ9.6 / R6)
 - [ ] Code Review task is tailored to the plan's specific files and libraries (not a copy-paste template)
 - [ ] Code Review task includes the Model Switch Pause rule (CQ9.2) in its STOP RULES
 - [ ] Task ordering: non-deployment → implementation → Code Review (N-1) → Doc Update (N); deployment → authoring/testing → Code Review → deploy → Doc Update
+
+---
+
+## Change-Impact Dependent Discovery
+
+Universal rule: `PLAN_CORE.md §2 Change-Impact Enumeration`. Ecosystem command for this addendum: `rg -n '\bSYMBOL\b' <source dirs>` (JS/TS/Python/Bash); `gopls references` or `go doc` for Go.
+
+Any parameter whose **meaning** (not just type) changes is a signature change. Run the discovery search on private / module-scoped callables too — visibility has nothing to do with blast radius. Paste the discovery command and its match count into the task; never enumerate dependents from memory.
+

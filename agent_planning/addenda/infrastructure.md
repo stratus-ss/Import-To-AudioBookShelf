@@ -284,7 +284,14 @@ python -c "import my_module; print('OK')"
 
 In addition to the universal checklist, verify:
 
-**Cross-cutting framework rules (R1–R7):** see `PLAN_CORE.md §2 — Cross-cutting framework rules`. Of particular note for infrastructure plans: R1 (operator-confirm between dry-run and apply is mandatory for any plan that calls `terraform apply`, `kubectl apply`, `ansible-playbook` without `--check`, or remote `DROP`/`DELETE`/`rm -rf`); R2 (long-running deploy APIs require explicit poll-until-drained); R3 (infrastructure queries that consume collections must cite the schema or carry an `⚠️ UNTESTED` dump step); R6 (the Code Review task precedes the first deploy/apply task — see §A14); R7 (the plan preamble carries the recorded pre-execution semantic-review line, with no unresolved `FAIL`, before bootstrap).
+**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Infrastructure-specific triggers per rule:
+
+- **R1** operator-confirm between dry-run and apply is mandatory for any plan that calls `terraform apply`, `kubectl apply`, `ansible-playbook` without `--check`, or remote `DROP`/`DELETE`/`rm -rf`.
+- **R2** long-running deploy APIs require explicit poll-until-drained.
+- **R3** infrastructure queries that consume collections must cite the schema or carry an `⚠️ UNTESTED` dump step.
+- **R6** the Code Review task precedes the first deploy/apply task (see §A14).
+- **R9** absolute/negative checks must be baseline-verified at authoring.
+- **R12** producer→consumer value moves — e.g. a stored serialization consumed by a renderer or query — must quote the consumer's expected form, name the transform, and carry one end-to-end acceptance.
 
 - [ ] ACCESS & CREDENTIAL PREREQUISITES table present; every target marked ✅ VERIFIED or ❌ ASSUMED
 - [ ] toolchain rows: compiler/runtime + complexity/lint tools each carry version, PATH status, verifying command, and date
@@ -329,3 +336,10 @@ to a target, or a remote `rm`/`DROP`/`DELETE`.
 - For non-deployment plans, CQ9.4's penultimate rule applies unchanged.
 - Authors may declare `Deployment phase: yes` / `Deployment phase: N/A` in the
   plan preamble when the heading heuristic is ambiguous (`plan_lint.sh` P7).
+
+---
+
+## Change-Impact Dependent Discovery
+
+Universal rule: `PLAN_CORE.md §2 Change-Impact Enumeration`. Ecosystem command for this addendum: `rg -n '\bVAR\b|\bMODULE\b|\bRESOURCE\b' <repo>`; `terraform graph`; `ansible-doc -l`; `kubectl get -o yaml -A`.
+
