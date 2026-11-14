@@ -26,11 +26,13 @@ CANONICAL_FILES=(
   "EXECUTION_PROTOCOL.md"
   "TIER1_FASTPATH.md"
   "CHANGELOG.md"
+  "TELEMETRY.md"
   "prompts/README.md"
   "prompts/plan_review_rubric.md"
   "scripts/init_execution_dir.sh"
   "scripts/plan_lint.sh"
   "scripts/plan_review.sh"
+  "scripts/plan_selfcheck.sh"
   "scripts/quality_gate.sh"
   "scripts/secret_scan.sh"
   "scripts/sync_protocol.sh"
@@ -49,13 +51,23 @@ CANONICAL_FILES=(
 
 CANONICAL_DIRS=(
   "addenda"
+  "reviewer"
 )
+
+# `reviewer/` ships the clean-context subagents:
+#   code-reviewer.md    — Code Review task (CQ9.2 / EXECUTION_PROTOCOL.md §9.0)
+#   playwright-tester.md — R14 Playwright functional pass (addenda/web.md W2.1)
+#   plan-validator.md   — R7 pre-execution plan validation (PLAN_CORE.md §8.7)
+# Copy each to `.opencode/agents/<name>.md` in a project root to make it
+# dispatchable. Both pin their model in frontmatter so neither silently
+# inherits the authoring session's.
 
 # ── Add your downstream repo names here ─────────────────────────────────────
 # Each entry is a directory name under GIT_PROJECTS_ROOT that contains
 # an agent_planning/ subdirectory.
 KNOWN_REPOS=(
   "D&D_Workflow"
+  "budget_dashboard"
   "garmin-influxdb"
   "htpc-desktop"
   "infra-playbooks"

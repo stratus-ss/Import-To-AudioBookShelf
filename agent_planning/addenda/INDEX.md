@@ -21,6 +21,7 @@ After reading `PLAN_CORE.md`, select ONE addendum based on your project's primar
 | **creative** | `addenda/creative.md` | Blog posts, technical articles, documentation narratives, editorial rewrites, README prose, release notes, presentation scripts | The primary artifact is written content — reduced ceremony, simplified interview |
 | **code-quality** | `addenda/code-quality.md` | (cross-cutting — read alongside domain addendum) | ANY plan that produces executable code. Required for software/pipeline (always), automation (function nodes), infrastructure (scripts/playbooks). Exempt: creative, pure config-only infra. |
 | **file-budget** | `addenda/file-budget.md` | (cross-cutting — read alongside domain addendum) | ANY plan that authors or modifies source files. Enforces per-language line caps (spec §FB1) via `quality_gate.sh --file-budget`. Exempt: creative, pure-doc plans. |
+| **web** | `addenda/web.md` | (cross-cutting — read alongside domain addendum) | ANY plan that adds or modifies a browser-rendered UI — browser-context front-end source (`.html`/`.css`/`.jsx`/`.tsx`/`.vue`/`.svelte`), a served SPA/static bundle (`web/`, `static/`, `public/`, `dist/`), or a Lovelace/Grafana UI surface. Requires a Playwright functional-test task (R14). Exempt: API/backend/config/doc-only changes. |
 | **ponytail** | `addenda/ponytail.md` | (cross-cutting — read when the OpenCode Ponytail plugin is active) | ANY plan authored or executed where `@dietrichgebert/ponytail` is registered in `~/.config/opencode/opencode.json`. Establishes "rung 0": framework MUSTs outrank Ponytail's YAGNI ladder. Skip if the plugin is absent. |
 
 ---
@@ -72,6 +73,25 @@ addendum for any plan that authors or modifies source files. Read it when:
 
 It pairs with `code-quality.md`: code-quality governs per-function complexity,
 file-budget governs per-file size. Skip it for creative and pure-doc plans.
+
+---
+
+### Web Addendum — When to Read
+
+The `web` addendum is cross-cutting — it applies alongside the domain addendum
+for any plan that adds or modifies a browser-rendered UI. Read it when:
+
+- The plan edits browser-context front-end source (`.html`, `.css`, `.jsx`,
+  `.tsx`, `.vue`, `.svelte`), or `.js`/`.ts` that executes in a browser.
+- The plan touches a served SPA or static bundle (`web/`, `static/`, `public/`,
+  `dist/`, a served `index.html`).
+- The plan changes a Lovelace card or Grafana UI code (not a scrape target or a
+  Prometheus alert rule).
+
+It requires a dedicated **Playwright functional-test task** (rule **R14**).
+Skip it for pure API/backend/config/data/documentation changes — record
+`Playwright: N/A — <reason>` in the plan preamble when a plan is borderline and
+the operator agrees it is not web-related.
 
 ---
 

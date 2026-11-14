@@ -6,6 +6,7 @@
 #   ./scripts/quality_gate.sh <path> [path...]
 #   ./scripts/quality_gate.sh --lang auto|python|go|ts|bash <path> [path...]
 #   ./scripts/quality_gate.sh --file-budget <path> [path...]
+#   ./scripts/quality_gate.sh --file-budget-only <path> [path...]
 #   ./scripts/quality_gate.sh --info-radon <python-path...>   # radon informational only
 #
 # File budget (--file-budget):
@@ -15,6 +16,8 @@
 #   A file may declare its own budget with a sentinel comment placed in its
 #   first 50 lines, written as  // file-budget: [N] — [reason]  (Go/TS/JS)
 #   or  # file-budget: [N] — [reason]  (Python/Bash).
+#   ADDITIVE: this also runs the language complexity gate, per CQ11. Use
+#   --file-budget-only to check line caps alone.
 #
 # Exit codes:
 #   0 — PASS
@@ -26,6 +29,7 @@ set -euo pipefail
 
 LANG_MODE="auto"
 FILE_BUDGET=0
+FILE_BUDGET_ONLY=0
 INFO_RADON=0
 PATHS=()
 
@@ -41,6 +45,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --info-radon) INFO_RADON=1; shift ;;
     --file-budget) FILE_BUDGET=1; shift ;;
+    --file-budget-only) FILE_BUDGET=1; FILE_BUDGET_ONLY=1; shift ;;
     -h|--help)
       awk 'NR==1 {next} /^#/ {sub(/^# ?/,""); print; next} {exit}' "$0"
       exit 0
@@ -53,7 +58,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#PATHS[@]} -eq 0 ]]; then
-  echo "Usage: $0 [--lang auto|python|go|ts|bash] [--info-radon] <path>..." >&2
+  echo "Usage: $0 [--lang auto|python|go|ts|bash] [--file-budget|--file-budget-only] [--info-radon] <path>..." >&2
   exit 1
 fi
 
@@ -131,9 +136,19 @@ run_ts() {
     return
   fi
   echo "[quality_gate] ts: eslint complexity≤15 on $target"
-  if npx --yes eslint --no-config-lookup --max-warnings 0 --rule 'complexity: ["error", 15]' "$target"; then
+  local out rc=0
+  out=$(npx --yes eslint --no-config-lookup --max-warnings 0 \
+        --rule 'complexity: ["error", 15]' "$target" 2>&1) || rc=$?
+  if [[ $rc -eq 0 ]]; then
     pass "eslint complexity clean: $target"
+  elif grep -q 'ignored because' <<<"$out"; then
+    # ESLint ignores a file with no config covering it — an absolute path
+    # outside the cwd's base path, which is how every caller passes a target
+    # from another repo. "Ignored" is unverified, not exceeded; failing here
+    # made this arm unable to pass for ANY .ts file (2026-11-13 review, row 17).
+    info "eslint has no config covering $target — complexity unverified (check by hand)"
   else
+    echo "$out" >&2
     fail "eslint complexity exceeded in $target"
   fi
 }
@@ -144,12 +159,34 @@ run_bash() {
     fail "shellcheck not installed (required for Bash quality gate)"
     return
   fi
-  echo "[quality_gate] bash: shellcheck $target"
-  if shellcheck "$target"; then
-    pass "shellcheck clean: $target"
+  # The shellcheck CLI cannot take a directory: it aborts with
+  #   openBinaryFile: inappropriate type (is a directory)
+  # Expand a directory to the scripts underneath instead, so that
+  # `--lang bash <dir>` (and `--lang auto <dir>` for a shell tree) does what
+  # the caller expects. Previously that invocation always failed, which is why
+  # `--lang bash` had never passed against a lab directory.
+  local -a files=()
+  if [[ -d "$target" ]]; then
+    while IFS= read -r f; do
+      files+=("$f")
+    done < <(find "$target" -type f \( -name '*.sh' -o -name '*.bash' \) \
+               -not -path '*/.git/*' 2>/dev/null | sort)
+    if [[ ${#files[@]} -eq 0 ]]; then
+      info "bash: no .sh/.bash files under $target — nothing to check"
+      return
+    fi
   else
-    fail "shellcheck reported issues in $target"
+    files=("$target")
   fi
+  echo "[quality_gate] bash: shellcheck ${#files[@]} file(s) under $target"
+  local f
+  for f in "${files[@]}"; do
+    if shellcheck "$f"; then
+      pass "shellcheck clean: $f"
+    else
+      fail "shellcheck reported issues in $f"
+    fi
+  done
   info "Bash branch budget (≤15) remains a manual CONSTRAINTS check"
 }
 
@@ -225,12 +262,26 @@ for path in "${PATHS[@]}"; do
     else
       run_file_budget "$path"
     fi
-    continue
+    # CQ11 says the file-budget check is "additive to the --lang complexity
+    # invocation". This used to `continue` here, which made the two gates
+    # mutually exclusive — so the command every coding task's VERIFICATION
+    # names structurally could not run complexity, and did not across 68
+    # devlogs. Fall through instead. `--file-budget-only` opts out.
+    [[ "$FILE_BUDGET_ONLY" -eq 1 ]] && continue
+    # A directory sweep already ran every file through the budget arm; the
+    # complexity arm below walks paths, so return rather than re-walk.
+    [[ -d "$path" ]] && continue
   fi
 
   lang="$LANG_MODE"
   if [[ "$lang" == "auto" ]]; then
     lang="$(detect_lang "$path")"
+  fi
+  # Non-code files have no complexity to measure. A data-file or docs sweep is
+  # a legitimate use of --file-budget, so skip silently (the budget arm still
+  # checked them) rather than failing with "could not detect language".
+  if [[ "$lang" == "unknown" && "$FILE_BUDGET" -eq 1 ]]; then
+    continue
   fi
 
   case "$lang" in

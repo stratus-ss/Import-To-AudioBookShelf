@@ -142,7 +142,7 @@ STRUCTURE sections that modify ESPHome configs MUST list:
 
 In addition to the universal checklist, verify:
 
-**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Apply the same R1–R13 expectations as the other addenda; automation-specific triggers (live-flow backup, MQTT publish verification, OTA reachability) belong in CONTEXT / DON'T / VERIFICATION per task.
+**Cross-cutting framework rules (R1–R14):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Apply the same R1–R14 expectations as the other addenda; automation-specific triggers (live-flow backup, MQTT publish verification, OTA reachability) belong in CONTEXT / DON'T / VERIFICATION per task.
 
 - [ ] Flow backup (STEP 0) included in any task that modifies a live flow or HA config
 - [ ] Backup destination is the project artifacts directory (not /tmp)

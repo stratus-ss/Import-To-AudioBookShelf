@@ -236,6 +236,7 @@ Every plan that adds or modifies a production-facing entrypoint MUST include a d
 - Exercise the production entrypoint via the production protocol (JSON-RPC over stdio, HTTP, shell)
 - Test both happy path AND error path
 - Never verify by module introspection alone — invoke the function and assert output
+- **Browser UI:** when the entrypoint is a browser-rendered UI, the functional task MUST use **Playwright** and drive the DOM — an operator browser checklist is not a substitute. See `addenda/web.md` (rule R14).
 
 ---
 
@@ -274,7 +275,7 @@ The library query happens at authoring time and again at the Code Review task (p
 
 In addition to the universal checklist, verify:
 
-**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. This addendum's surface is caught by the deterministic P-rules in `agent_planning/scripts/plan_lint.sh` (structural surface); R-rules close the non-mechanical gaps. Author must satisfy both layers. Domain-specific software-plan triggers belong in CONTEXT / DON'T / VERIFICATION per task.
+**Cross-cutting framework rules (R1–R14):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. This addendum's surface is caught by the deterministic P-rules in `agent_planning/scripts/plan_lint.sh` (structural surface); R-rules close the non-mechanical gaps. Author must satisfy both layers. Domain-specific software-plan triggers belong in CONTEXT / DON'T / VERIFICATION per task.
 
 **Plan-Authoring:**
 - [ ] `addenda/code-quality.md` has been read in full before authoring tasks
@@ -293,7 +294,7 @@ In addition to the universal checklist, verify:
 - [ ] Fragility rules (input validation, error handling) in every coding task's DON'T
 - [ ] CQ10 decomposition CONSTRAINTS present for multi-check / aggregate evaluators
 - [ ] `plan_lint.sh [--require-full-tasks] <plan.md>` passes before Task 1
-- [ ] R7 pre-execution semantic-review gate (narrow trigger per PLAN_CORE §2): Tier 3 plans and Tier 2 plans touching a remote system, public interface, schema/migration, secrets, or more than one repo MUST carry a recorded review line (reviewer model, date, grade, finding count); exempted local Tier 2 plans record `R7 waived (narrow trigger)` instead; no `FAIL` finding unresolved before Task 1
+- [ ] R7: Tier 2/3 plan validated by the clean-context `plan-validator` subagent (PLAN_CORE.md §8.7) — validation line in the preamble, 0 FAIL rows before bootstrap; Tier 1 exempt
 
 **Execution VERIFICATION:**
 - [ ] VERIFICATION includes test suite execution (`go test ./...` or `pytest`), not just build/import checks
@@ -303,7 +304,8 @@ In addition to the universal checklist, verify:
 - [ ] Every coding task's VERIFICATION includes: `quality_gate.sh` COMPLEXITY CHECK, MAINTAINABILITY CHECK, DRY CHECK, CODE REVIEW (CONTEXT7 re-query is part of the Code Review task per CQ1)
 - [ ] Plan includes a dedicated Code Review task (per code-quality.md §CQ9) — penultimate for non-deployment plans, immediately before the first deploy/apply task for deployment plans (§CQ9.6 / R6)
 - [ ] Code Review task is tailored to the plan's specific files and libraries (not a copy-paste template)
-- [ ] Code Review task includes the Model Switch Pause rule (CQ9.2) in its STOP RULES
+- [ ] Code Review task includes the reviewer-dispatch clause (CQ9.2 / `EXECUTION_PROTOCOL.md §9.0`) in its STOP RULES
+- [ ] If the plan is web-related, the Playwright task dispatches a clean-context `playwright-tester` subagent with a pinned model and a Row 0 (`addenda/web.md` W2.1/W2.2) — never an author-run pass
 - [ ] Task ordering: non-deployment → implementation → Code Review (N-1) → Doc Update (N); deployment → authoring/testing → Code Review → deploy → Doc Update
 
 ---

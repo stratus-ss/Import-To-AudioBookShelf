@@ -12,7 +12,7 @@ Every Tier 2/3 plan establishes a project execution directory at:
 
 ```
 agent_planning/execution/<project_name>/
-  STATE.md           -- single recovery file (objective, current task, blockers, next action, files in scope, bootstrap pointers, R7 summary)
+  STATE.md           -- single recovery file (objective, current task, blockers, next action, files in scope, bootstrap pointers)
   TASK_QUEUE.md      -- flattened queue with status
   devlogs/           -- audit trail (one file per session or day)
   artifacts/         -- (optional) runtime state snapshots, large outputs, recovery data
@@ -76,7 +76,7 @@ a crash, or a session boundary, the snapshot is gone. Use the artifacts dir.
 
 | Artifact | Role | Update frequency |
 |----------|------|-----------------|
-| `STATE.md` | Single recovery file: current objective, active task, blockers, next action, files in scope, bootstrap pointers, R7 summary | After every completed or blocked task |
+| `STATE.md` | Single recovery file: current objective, active task, blockers, next action, files in scope, bootstrap pointers | After every completed or blocked task |
 | `TASK_QUEUE.md` | Authoritative task status list (todo / doing / blocked / done) | After every task status change |
 | `devlogs/<name>.md` | Audit trail: decisions made, evidence gathered, commands run, outcomes | Append after each session |
 
@@ -230,13 +230,6 @@ Read in this order:
 
 ## Known Blockers / Gotchas
 - <any non-obvious constraint the next agent must know>
-
-## R7 Review Summary (when --plan was used)
-- reviewer: <model>
-- grade: <grade>
-- score: <score>
-- findings: <total> (FAIL=<fails>)
-- artifact: <path>
 ```
 
 ### TASK_QUEUE.md
@@ -302,7 +295,171 @@ The answer is the empirical signal for whether the framework change moved the ne
 
 ## 9. Code Review Checkpoint
 
-When a plan produces executable code (shell scripts, Docker Compose files, Ansible playbooks, configuration files that affect live services), the executing agent MUST perform a self-review before marking the task as done.
+When a plan produces executable code (shell scripts, Docker Compose files, Ansible playbooks, configuration files that affect live services), a **clean-context reviewer** MUST perform the review before the task is marked done.
+
+### 9.0 The reviewer is a separate context, not the author
+
+**The authoring agent MUST NOT review its own code.** A self-review cannot report a
+blind spot the author cannot see — the reasoning that produced the defect is the same
+reasoning that failed to notice it. This is not a style preference; it is the reason
+the review exists.
+
+Concretely, the review MUST be performed by an agent that did not write the code and
+whose context does not contain the authoring session. In OpenCode that is a **subagent
+dispatch**, which runs in a fresh context by construction. The canonical reviewer is
+shipped at `agent_planning/reviewer/code-reviewer.md`; copy it to
+`.opencode/agents/code-reviewer.md` in the project root and dispatch it as
+`code-reviewer`.
+
+**Why a subagent rather than a fresh top-level session.** Both give clean context, but
+the subagent is the cheaper mechanism: it needs no operator round-trip, it cannot
+silently skip the checklist, and its findings come back into the executing session as
+data. A fresh session is acceptable only when the harness offers no subagent dispatch;
+if it is used, log `[SCOPE-GAP]` in the devlog.
+
+**Background dispatch is permitted and preferred for long scopes.** A review covering
+many files or a slow test suite may run as a background subagent; the executing
+session must not begin remediation until it returns.
+
+#### Model selection and the silent-inheritance trap
+
+A subagent with no configured model **inherits the parent session's model**. An
+unpinned reviewer therefore silently reviews with the same model that wrote the code —
+the cross-model property is lost with no signal, which is the failure this section
+exists to prevent. Two defences, both required:
+
+1. **The reviewer ships with a pinned `model:`** in its frontmatter. Verified against
+   the live catalog before committing a model id; variant strings must be checked
+   against that model's `reasoning_options` effort values, not guessed.
+2. **The dispatch passes the authoring model id** in the prompt, and the reviewer
+   opens its report with **Row 0**, stating the model it is actually running and
+   whether that matches the author. The reviewer is instructed to mark it `FAIL` if
+   it cannot tell, or if the prompt contained the authoring transcript.
+
+The executing session reads Row 0 and decides:
+
+| Row 0 | Meaning | Action |
+|-------|---------|--------|
+| `PASS` | Clean context **and** a different model — full independence | proceed |
+| `ADVISORY` | Clean context only; same model as the author | proceed only if the operator explicitly accepted a same-model review. Record that acceptance in the devlog. Otherwise treat as `FAIL`. |
+| `FAIL` | Model indeterminate, or the prompt leaked the authoring transcript | stop; re-dispatch |
+
+Prefer a different model. A deliberate same-model review is a reasonable cost or
+capability choice — it is only a defect when nobody chose it.
+
+**The same rule governs the Playwright functional pass** (`addenda/web.md`
+W2.1/W2.2): the tester is a clean-context subagent with a pinned primary model
+(`opencode-go/minimax-m3.1-flash#medium`) and a documented fallback
+(`alibaba-token-plan/deepseek-v4.1-flash-1017#high`), reported in Row 0. There is no
+`fallback-model` frontmatter key — the fallback is applied by re-dispatching with
+an explicit `model` argument. A functional pass run by the authoring agent, or
+dispatched without a model pin, is a defect regardless of what it reported.
+
+**The same rule also governs the pre-execution plan validation** (`PLAN_CORE.md`
+§8.7 / R7): the validator is a clean-context subagent pinned to
+`opencode/deepseek-v4.1-flash#max` (operator choice 2026-10-25), reported in
+Row 0 with the same ADVISORY-when-same-model semantics — a DeepSeek-authored
+plan yields `ADVISORY` (clean-context only), an accepted trade, not a defect.
+A plan validated by its authoring agent, or dispatched without a model pin, is
+a defect regardless of what it reported.
+
+**The reviewer does not edit.** The reviewer agent ships with edit permission denied.
+Remediation stays in the executing session, applied against the reviewer's findings,
+and every applied change is logged per §9's R11 clause. This keeps the reviewer a
+measurement instrument rather than a second author, and keeps the audit trail —
+"finding → justification → fix" — attributable to one session.
+
+#### Dispatch contract
+
+The prompt handed to the reviewer is self-contained. It carries, and nothing depends
+on session state:
+
+1. the plan file path and the Code Review task's section;
+2. the review scope — the exact file list from the task's STRUCTURE;
+3. the per-category verification commands from the task's STRUCTURE;
+4. the STOP RULES that bind the remediation (so it can tell a real defect from an
+   intentional constraint);
+5. **the authoring model id** — the reviewer needs it to fill in Row 0 honestly;
+6. the paths of the §9 checklist itself, so the reviewer does not rely on memory.
+
+**Do not** pass the authoring session's transcript, its rationale, or its devlog
+narrative. Those are precisely the context that produces the blind spot. The reviewer's
+job is to check the artefacts against the plan, not to grade the author's reasoning.
+
+#### Recording the dispatch
+
+The Code Review task's devlog entry records, for every dispatch:
+
+```markdown
+REVIEWER: <agent id> · model <provider/model#variant> · author <provider/model#variant> · context: subagent (clean)
+DISPATCH: <what was passed in scope>
+ROW 0: <the reviewer's self-reported independence row — quote it verbatim>
+FINDINGS: <total> — PASS <n>, FAIL <n>, ADVISORY <n>
+BLOCKING: <the FAIL rows, or "none">
+```
+
+`ROW 0` is recorded verbatim rather than summarised so the dispatch is auditable
+after the fact: a reviewer that silently inherited the authoring model would
+otherwise be indistinguishable from one that was correctly pinned to a different
+model.
+
+A Code Review task with no `REVIEWER:` line in its devlog is not a completed review.
+If no clean-context reviewer was available and the executing agent reviewed its own
+work, the task is `⚠️ UNTESTED` with a `[SCOPE-GAP]` recording why — never `done`.
+
+### Review Loop Cap — 2 rounds maximum per gate
+
+Every re-dispatchable verification gate has a **hard budget of two rounds**. It
+applies to the Code Review task (§9.0) and to the Playwright functional pass
+(`addenda/web.md` W2); each gate has its own budget, so a web plan permits
+**2 Code Review rounds and 2 Playwright rounds** — not two rounds total. The
+R7 plan-validation dispatch (`PLAN_CORE.md §8.7`) already carries the same
+single-remediation bound.
+
+| Round | When it is allowed |
+|-------|--------------------|
+| 1 | the initial dispatch |
+| 2 | only after the round-1 blocking findings are remediated |
+| 3 | does not exist — there is no "one more quick pass" |
+
+A round is counted **on dispatch**, not on merit. A re-check after applying fixes,
+a re-dispatch on a different model, a re-run "just to confirm the last two fixes",
+and a dispatch after partial remediation are each a round. Elapsed time is
+irrelevant: three hours of work is not evidence that round 3 would have been the
+last one, and the clock is not an input to the cap.
+
+**When round 2 is still blocking, the gate stops.** Do not remediate again, do not
+deploy, do not dispatch again. Record, then escalate:
+
+1. Devlog: `ROUND: 2/2 · <gate> · BLOCKING <n>`, plus the round-2 findings table
+   quoted verbatim. The operator needs the rows, not a summary of the mood.
+2. Devlog: one line per round spent, stating what round *n* found that round
+   *n−1* did not. That diff is the useful artefact — it is what separates "the fix
+   regressed something" from "the approach is wrong".
+3. Task status `⚠️ BLOCKED (loop cap — <gate>, 2 rounds)` — never `done`, never
+   `⚠️ UNTESTED`, never "complete with N minor findings".
+4. HANDOFF: a `Loop cap hit` section carrying the outstanding FAIL rows, the
+   round history, and the one decision the operator has to make. Name which it
+   looks like: an **unstated plan decision** (the plan never decided what the code
+   should do here), a **wrong approach** (each fix exposes the next defect), or
+   **genuinely small residue** (real but isolated defects that do not interact).
+5. Stop the session and hand back. Do not start the next task to "keep making
+   progress".
+
+**A loop-cap stop is not a promotion.** Code that hit the cap does not ship, is not
+marked ready, and is not described as "ready to promote". A report that says both
+"the last round still found real defects" and "we are ready to ship" is a defect in
+the report, whatever the findings' severity. Elapsed time, operator impatience, and
+"the remaining findings are minor" are not a round-2 pass.
+
+**Only an explicit operator override buys a third round**, recorded in the devlog as
+`LOOP-CAP OVERRIDE: <verbatim operator instruction> — operator, YYYY-MM-DD`.
+Continuing because the operator said "carry on with the plan" is not an override,
+and an executor never self-grants one.
+
+The cap exists because a review that keeps finding real defects is a signal about
+the **plan**, not an invitation to keep fixing. Two rounds of real findings means the
+code is wrong in a way remediation cannot reach — escalate that; do not grind it.
 
 ### Review Checklist
 
@@ -346,6 +503,14 @@ When a plan produces executable code (shell scripts, Docker Compose files, Ansib
 - [ ] Implemented patterns match current library documentation
 - [ ] Any deviation from planned patterns logged with API-DRIFT tag
 
+#### Web UI (per addenda/web.md, R14 — browser-rendered plans only)
+- [ ] A dedicated Playwright functional-test task exists and ran before Code Review
+- [ ] The pass ran in a clean-context `playwright-tester` subagent on a pinned, cross-model dispatch (web.md W2.1/W2.2) — the authoring agent did not run it, and a Row 0 recording the actual model vs the authoring model is in the devlog
+- [ ] The test drove the real user path through the DOM (no fetch-only substitute) and asserted observable behaviour
+- [ ] Happy path AND an error/refusal path were asserted
+- [ ] The run was headless, exited 0, and the server it started was torn down (zero-orphan check documented) — or `Playwright: N/A — <reason>` is recorded with the task marked `⚠️ UNTESTED`
+- [ ] No failing assertion was weakened, skipped, or narrowed to reach green — a failure is a reported finding, not something to tune away
+
 ### Enforcement
 
 Every task that produces code MUST include in its VERIFICATION section:
@@ -377,8 +542,11 @@ gate between authoring and deployment — not a final cleanup step. See
 2. The review scope is the exact artifacts the deployment will apply — the
    scripts, playbooks, manifests, and configs, not a summary.
 3. **No deployment task may start until the review passes.** If the review
-   returns FAIL findings, resolve them and re-review before deploying. Each
-   deployment task's CONSTRAINTS carries this gate.
+   returns FAIL findings, resolve them and re-review **once** (Review Loop Cap,
+   above). If round 2 is still blocking, the gate does not pass: mark the review
+   `⚠️ BLOCKED (loop cap)` and escalate — do not deploy, and do not deploy on the
+   grounds that the outstanding findings look minor. Each deployment task's
+   CONSTRAINTS carries this gate.
 4. The Model Switch Pause (CQ9.2) is opt-in at this gate exactly as it is for a
    penultimate review — proceed with the current model by default; switch only
    on operator request.

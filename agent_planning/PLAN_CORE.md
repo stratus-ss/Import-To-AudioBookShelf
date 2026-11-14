@@ -1,6 +1,6 @@
 # Plan Authoring — Core Protocol
 
-_Last updated: 2026-09-26_
+_Last updated: 2026-10-25_
 
 This document contains the universal planning discipline that applies to ALL plan types, regardless of domain or model. It is used together with one domain addendum and optionally a model addendum.
 
@@ -19,14 +19,24 @@ This document contains the universal planning discipline that applies to ALL pla
 
 ### Role Separation
 
-The AI acts as **architect, planner, and technical expert**. The user is the **Subject Matter Expert (SME)** — the authority on domain knowledge, business context, acceptance criteria, and what "done" looks like.
+The AI acts as **architect, planner, and technical expert**. The user is the **design authority and Subject Matter Expert (SME)** — the authority on domain knowledge, business context, acceptance criteria, what "done" looks like, and the system's design intent.
 
 | Role | Owns |
 |------|------|
-| AI (Architect) | Technical approach, task decomposition, file structure, implementation patterns, verification strategy, pre-seeding decision records with domain trade-off context |
-| User (SME) | Domain rules, business constraints, acceptance criteria, integration requirements, what is in/out of scope, decisions on pre-seeded DRs |
+| AI (Architect) | The question set (finding the decisions that exist); the option space; consequences and recommendations; task decomposition, file structure, implementation mechanics, verification strategy |
+| User (Design authority + SME) | Domain rules, business constraints, acceptance criteria, integration requirements, scope, and **the selection of system/design intent from the AI's option space** |
 
-The AI must **never assume domain knowledge**. The user should **not dictate implementation details** unless they have a specific technical reason. Architecture and approach belong to the AI.
+The AI must **never assume domain knowledge**. It owns the *menu* — what the decisions are, what each option costs, which one it recommends — and the user owns the *order*: which option is taken.
+
+**Default ownership of a decision** (three cases, no gap):
+
+| The decision… | Default owner |
+|---|---|
+| fixes what the system does, how it is shaped, or what it optimises for | **the user** |
+| is a structural fork the reproducibility test admits — module boundary, data flow, dispatch / error / concurrency strategy, ordering, idempotency | **the user** |
+| is a local mechanic fully determined by the codebase and the other decisions — a name, a file layout, a loop shape any competent implementer lands on identically | **the AI**, recorded and overridable |
+
+The middle case is the one that matters: a fork the executor would otherwise *invent* is a design commitment, not a mechanic. The AI may propose it with a `strong` recommendation, but a design commitment is not the AI's to take unilaterally — otherwise "mechanics" becomes the label that lets the agent quietly own design. Tag every DR honestly; an AI-owned structural fork is a delegation, and delegation is visible.
 
 ### Tier Classification (Choose Before Proceeding)
 
@@ -36,9 +46,9 @@ Before beginning discovery, classify the request into one of three tiers. The ti
 |------|---------|-----------------|
 | **Tier 1** | Single-system, no remote deployment, <5 tasks. Bugfixes, single-file refactors, documentation, local scripts. | 7-category quick interview + restatement gate |
 | **Tier 2** | Remote systems, deployment, monitoring setup, multi-host operations (task count is a heuristic — a single-system deployment stays Tier 2 even above 15 tasks; see the disambiguation below). | Domain-specific Decision Records (DRs) + Discovery Summary + restatement gate |
-| **Tier 3** | Multi-system integrations where 3+ independent systems must coordinate, multi-phase migrations with data-at-risk, or projects where a dependency graph between DRs is non-trivial (DRs gate other DRs). | Full grouped DRs + dependency graph + Architecture Summary + restatement gate |
+| **Tier 3** | Multi-system integrations where 3+ independent systems must coordinate, multi-phase migrations with data-at-risk, or a DR graph deep or wide enough that a diagram earns its place. | Grouped DRs + **rendered** dependency graph + Architecture Summary + restatement gate |
 
-When in doubt, choose the higher tier. The cost of under-scoping discovery is tasks that silently fail on unresolved assumptions.
+**Tier 2 vs Tier 3:** Tier 2 already carries `Dependencies:` per DR and walks them as a frontier, so a DR that gates another DR is *not* by itself a Tier 3 signal. Tier 3 is when the graph stops being readable inline — several DR layers, cross-system edges, or enough of them that the gating map needs its own artifact. When in doubt, choose the higher tier. The cost of under-scoping discovery is tasks that silently fail on unresolved assumptions.
 
 ---
 
@@ -56,41 +66,76 @@ Conduct a structured interview across these seven categories. Every category mus
 | 6 | **Acceptance criteria** | How does the user know the plan succeeded. Concrete pass/fail conditions. |
 | 7 | **Unstated constraints** | Deadlines, hardware limits, team conventions, regulatory requirements, things the user considers obvious. |
 
-After the interview, produce the Restatement Gate (see below). No DRs required.
+After the interview, produce the Restatement Gate (see below). No DR ledger is required.
+
+Every interview question carries the AI's recommended answer with a one-word strength (`strong` / `weak` / `none`), so a whole round can be answered with `y`, a pick, or an override. If an answer reveals a **fork** (irreversible, expensive to change, silent failure mode, or it gates other work), promote it to a mini-DR and resolve it before authoring — Tier 1 stays cheap, but not at the cost of an unmade decision. A mini-DR is a real DR and carries the full §0 record and the `Owner` tag; the only thing Tier 1 drops is the full ledger, not the discipline.
 
 ---
 
-### Tier 2: Domain Discovery
+### Tier 2: Domain Discovery — DR-Grilling
 
-**The AI pre-seeds Decision Records (DRs) with domain trade-off context. The user provides the decisions.**
+**The AI finds and frames the decisions; the user makes them.**
 
-This mirrors how a Red Hat architect interrogates a client before an engagement: the architect writes the Issue (explaining what is at stake and why the decision is irrevocable or consequential), and the client fills in the Decision. The client is not expected to know the right questions — the architect does.
+This mirrors how a Red Hat architect interrogates a client before an engagement: the architect writes the Issue (what is at stake, why it is consequential), enumerates the options, and recommends one. The client is not expected to know the right questions — the architect does. The client *is* expected to make the design choice.
 
 #### Decision Record Format
 
 ```
 DR-N: [Short title]
-Issue: [2-5 sentences written by the AI explaining: what this decision controls,
-        what the failure mode is if the wrong choice is made, what the options are,
-        and why this must be decided before task authoring begins.]
-Decision: [User provides]
-Assumptions: [User provides any assumptions that condition the decision]
-Dependencies: [DR-N, DR-M -- other DRs this one depends on, or "none"]
+Owner: SME | shared | AI          -- default per the ownership rule above
+Issue: [2-5 sentences written by the AI: what this decision controls, the failure
+        mode of the wrong choice, and why it must be settled before authoring]
+Options:
+  A. <option> — <consequence / what it costs>
+  B. <option> — ...
+➡️ Recommendation: <option> (strong | weak | none) — <reason>
+   weak → also state what would change my mind
+   none → omit the recommendation line; this decision is the user's to design
+Dependencies: [DR-N, DR-M — DRs that must be resolved first, or "none"]
+Decision: [the user's: an option letter, an authored decision, or the literal `accept`]
+Assumptions: [the user's — the conditions the decision holds under]
 ```
 
-#### How to Generate DRs
+#### Which decisions earn a DR (the reproducibility test)
 
-The AI reads the user's request and produces DRs for every decision that:
+A decision earns a DR when it is a **fork**: two competent engineers holding only the spec could build materially different software.
+
+- It shapes observable behaviour or acceptance → DR (and the behaviour lands in the spec).
+- It supports the spec's implementation and would otherwise be *invented* by the executor — module boundary, data flow, dispatch / error / concurrency strategy, ordering, idempotency → DR.
+- It is determined by the codebase, the spec, or another DR → not a DR; it is plan detail (STRUCTURE / NAMING / CONSTRAINTS).
+
+**Ledger acceptance test:** Spec + DRs must let a competent agent rebuild the software without inventing a design.
+
+The four criteria below remain as *detection heuristics* for finding forks — they generate candidates; the reproducibility test decides:
+
 - Is **irrevocable** or **expensive to change** after execution begins
 - Involves a **trade-off** the user may not be aware of
 - Has **silent failure modes** if the wrong assumption is made
 - Creates **dependency ordering** issues for other tasks
 
-DRs are organized by domain area (storage, auth, rollback, scope, integration), not generic categories. Each DR's Issue is written by the AI — the user only provides Decision and Assumptions.
+DRs are organized by domain area (storage, auth, rollback, scope, integration), not generic categories. The Issue, Options, and Recommendation are written by the AI.
 
-**DR count is variable.** Generate as few or as many DRs as the project requires. Do not pad to a round number. A DR that does not meet any of the four criteria above is filler and must be cut.
+**Ceiling:** if a ten-task plan is producing 40+ DRs, the ledger is doing the executor's job. Collapse the mechanical implementation forks into one "Implementation commitments" DR per task; the reproducibility test still holds.
 
-**Present all DRs in a single message** with clear numbered IDs. Ask the user to respond with decisions keyed to each ID. Humans read sequentially and can handle a batch; multiple round-trips waste time.
+#### Rounds: the design tree, worked by frontier
+
+The DR set is **emergent, not fixed in advance**. Work it as a design tree in dependency layers:
+
+- The **frontier** is every DR whose `Dependencies` are already resolved — the questions askable *now* without guessing at an unanswered one. Present the whole frontier in one message, grouped by domain area. A question whose answer depends on a DR still open in this round belongs to a *later* round.
+- **New layers appearing as answers land is the process working, not scope creep.** Answering a layer uncovers the questions it implies; that is how a tree gets discovered. There is no cap on questions and no cap on rounds.
+- What keeps a large round tractable is the **answer cost**, not the round size: `strong` → `y`; `weak` → pick, or `accept` a called coin-flip; `none` → the user's to author.
+- **Facts are the AI's job, never the user's.** Anything lookup-able (a file, a version, an API shape, a live system state) is resolved by the AI — dispatch a subagent — and the rest of the frontier is asked without waiting on it.
+- **Do not pad to a round number.** A candidate that fails the reproducibility test is filler and must be cut.
+
+#### Resolution vocabulary
+
+- An option letter, or an authored decision → recorded as the decision.
+- `accept` → recorded verbatim as `Decision: accepted AI recommendation`. A bare `yes` on an AI-owned DR is treated as `accept`. A bare `yes` on an SME-owned DR is **also accepted, but recorded as `accepted AI recommendation`** — never laundered as an authored decision. The record must show which decisions the user actually made.
+- A `strong` strength on a genuine fork is inflation; `none` used to offload a decision the AI could have reasoned about is abdication. Both are authoring defects.
+
+#### Terminal condition
+
+Discovery ends when the frontier is empty **and** every DR carries a resolved `Decision`. The Discovery Summary then folds the decisions in concretely, and the Restatement Gate confirms it. A layer surfacing *after* the restatement is confirmed is a scope change, not a question — surface it and amend the scope before continuing.
 
 #### Discovery Summary
 
@@ -114,7 +159,7 @@ The Restatement Gate (below) applies to the Discovery Summary. Plan authoring is
 
 Tier 3 extends Tier 2 with two additions:
 
-**1. Grouped DRs with explicit dependency graph.** DRs are organized into domain sections (Storage & Deployment, Network & Access, Migration, Rollback & Operations). After all DRs are resolved, the AI produces a dependency graph showing which decisions gate which tasks.
+**1. Grouped DRs with a rendered dependency graph.** DRs are organized into domain sections (Storage & Deployment, Network & Access, Migration, Rollback & Operations). Tier 2 already records `Dependencies:` and walks them as a frontier; Tier 3's addition is that the graph must be **drawn** — after all DRs are resolved, the AI produces a dependency map showing which decisions gate which tasks, because at this scale the edges no longer fit inline.
 
 **2. Architecture Summary (mini-HLD).** After DRs are resolved, the AI produces a 1-2 page Architecture Summary describing the end-state system, integration points, and data flows. This is reviewed and confirmed before any task decomposition begins.
 
@@ -138,7 +183,7 @@ Plan authoring is blocked until both the Architecture Summary and Restatement Ga
 
 **Tier 2 vs Tier 3 disambiguation:** A single-system deployment with a local orchestrator script is Tier 2 even if it has >15 tasks. Tier 3 is reserved for cases where decisions in one system constrain decisions in another.
 
-**Plan-file embedding requirement:** The Architecture Summary (End State / Integration Points / Data Flows / Decision Dependencies) and the DR→task gating map are **required plan-file sections**, not chat output. The reviewer can confirm them only if they are present in the plan under `ARCHITECTURE SUMMARY` and `DECISION RECORDS` (with the gating map recorded in DECISION RECORDS or immediately under ARCHITECTURE SUMMARY). Plans that produce this content only in chat are non-compliant with R5 evidence-cited and R7 reviewer gate.
+**Plan-file embedding requirement:** The Architecture Summary (End State / Integration Points / Data Flows / Decision Dependencies) and the DR→task gating map are **required plan-file sections**, not chat output. The reviewer can confirm them only if they are present in the plan under `ARCHITECTURE SUMMARY` and `DECISION RECORDS` (with the gating map recorded in DECISION RECORDS or immediately under ARCHITECTURE SUMMARY). Plans that produce this content only in chat are non-compliant with R5 evidence-cited.
 
 ---
 
@@ -177,14 +222,19 @@ Embed the resolved Decision Records from Section 0 discovery directly in the pla
 ## DECISION RECORDS
 
 ### DR-1: [Title]
-- **Decision:** [What was decided]
-- **Rationale:** [Why -- key trade-offs from the Issue field]
+- **Owner:** [SME | shared | AI]
+- **Options:** [A. … — consequence / B. … — consequence]
+- **Recommendation:** [option — strong | weak | none]  (omit the line when `none`)
+- **Decision:** [option letter | authored decision | "accepted AI recommendation"]
 - **Assumptions:** [What must be true for this decision to hold]
 - **Dependencies:** [none / DR-N, DR-M]
 ```
 
 **Rules:**
-- Include only DRs that were resolved during Section 0 discovery. Open/deferred DRs must be marked as such and must NOT gate any task.
+- Include only DRs that were **resolved** during Section 0 discovery — §0's terminal condition
+  (frontier empty AND every DR resolved) means no DR reaches this section still open. A DR
+  deferred to a follow-up plan *is* resolved: its `Decision` names the deferral and the plan
+  it lands in, and it must NOT gate any task here.
 - Every task that was shaped by a DR decision MUST reference the DR in its CONSTRAINTS section.
 - Do NOT re-open DR decisions during task authoring. If a task reveals the decision needs revision, surface it to the user before continuing.
 - For Tier 1 plans: omit this section entirely.
@@ -287,9 +337,11 @@ A task MUST NOT contain "if X then do Y, if Z then do W" decision trees. The pla
 
 **Allowed fallback form:** an access-gate directive line whose text starts with the literal `If ANY check fails` prefix (for example, `If ANY check fails: mark task BLOCKED with specific evidence. Do NOT deploy.`) is exempt from this rule — it names the canonical access-gate fallback, not a pre-decideable outcome.
 
-### Cross-cutting framework rules (R1–R13)
+**Corollary (DR-backed directives).** A task that wants "if X then do Y" has one of two causes: X is determined by the code, the spec, or a resolved DR — in which case write it as a directive; or X is genuinely undecided — in which case that is an **unmade DR**, not task detail. Promote it to a DR, ask it, record the decision, then write the directive.
 
-These rules close non-mechanical gaps that the deterministic lint (P1–P8) cannot catch. They are enforced by the semantic reviewer (R7, DR-2) and by the addenda §checklists.
+### Cross-cutting framework rules (R1–R14)
+
+These rules close non-mechanical gaps that the deterministic lint (P1–P8) cannot catch. They are enforced by the addenda §checklists, the R7 plan-validation dispatch (§8.7), the Code Review task, and — optionally, operator-run — the semantic reviewer (`agent_planning/scripts/plan_review.sh`).
 
 - **R1 Operator gate for destructive ops.** A plan with any irreversible remote or data mutation MUST include an explicit operator-confirm step between dry-run and apply, written into the plan (not into chat).
 - **R2 Async / job-queued API drain.** A plan consuming an API that returns-before-complete MUST specify poll-until-drained with a wall-clock STOP rule and a per-call timeout.
@@ -297,13 +349,14 @@ These rules close non-mechanical gaps that the deterministic lint (P1–P8) cann
 - **R4 Referenced skills loaded at authoring.** A task naming a skill MUST transcribe that skill's exact format and constraints into the plan.
 - **R5 §12 self-review non-optional, evidence-cited.** Before declaring a plan done, every checklist item in §12 must carry evidence (a `✅ VERIFIED via <command> on <YYYY-MM-DD>`, `❌ ASSUMED`, `⚠️ STALE`, or equivalent provenance mark). A single aggregate count command does not satisfy the per-item rule, and an item without evidence does not count as passed. The `plan_lint.sh` R5 §12 coverage check emits the evidence-cited line count as advisory output; the `§12 pass: <n>` preamble number is optional when the lint output is preserved in the devlog. If the plan modifies the checklist it measures (a framework plan), re-record `n` at closeout against the post-change file.
 - **R6 Pre-deployment review gate.** A plan with a deployment/apply phase MUST place the dedicated Code Review task before the first task that mutates live or remote state, and every deployment task MUST gate on the review passing (code-quality.md §CQ9.6). Non-deployment plans keep the penultimate Code Review placement. A source-repo mirror/distribution sync is not a deployment (see §CQ9.6).
-- **R7 Pre-execution semantic review (narrow trigger, recorded gate).** Before `init_execution_dir.sh` bootstraps (or before Task 1 when bootstrap is skipped), the semantic reviewer runs against the plan and the preamble records a review line naming the reviewer model, date, grade, and finding count. Task 1 is blocked while any finding carries status `FAIL`. The reviewer tool itself stays advisory (non-deterministic output must not hard-block); the recorded-line gate is what makes review required. The review is required for Tier 3 plans, and for Tier 2 plans that touch a remote system, a public interface, a schema or migration, secrets, or more than one repo; it is optional for local, non-public, deterministically verified Tier 2 plans. When the review is waived for an exempted Tier 2 plan, the bootstrap records `R7 waived (narrow trigger)` in place of the recorded review line so the gate stays auditable.
+- **R7 — Pre-execution plan validation (re-instated 2026-10-25).** For Tier 2/3 plans, after the deterministic gates pass (lint + §8.6 reconciliation + selfcheck) and before `init_execution_dir.sh`, the author MUST dispatch the clean-context `plan-validator` subagent (§8.7; pinned `opencode/deepseek-v4.1-flash#max`) and record the validation line in the plan preamble. Zero FAIL rows opens the gate; every FAIL is remediated and re-validated once. Tier 1 plans are exempt. `plan_review.sh` remains a separate, optional, operator-run tool — it is not this gate. (R7 was retired 2026-10-04 as a `plan_review.sh`-backed shell gate after an unattended-loop incident; re-instated 2026-10-25 on the §9.0 subagent mechanism, which terminates and cannot loop.)
 - **R8 Assertable acceptance.** An acceptance criterion MUST be a binary, mechanically checkable assertion — present/absent, exact count, exact string, exit code, or a named fixture. Subjective adjectives ("clean", "correct", "names only", "looks right", "unambiguous") are not criteria. When the criterion describes a rendered or serialized artifact, name the assertion that proves it (e.g. "the `title` column is absent", "the list has 3 entries", "the command exits 0"). If two readers can interpret a criterion differently, it is a defect. Applies to every DON'T, VERIFICATION, and objective success-metric line.
 - **R9 Baseline-verified absolutes.** Any check that asserts an absolute or negative about the tree as-shipped ("returns nothing", "no matches", "expect 0", "is empty", "no nested X", "no duplicates", "must not contain") MUST be run against the pre-change tree at authoring time and its result cited (`✅ VERIFIED ... baseline`, or `⚠️ UNTESTED (baseline)`). If the baseline already violates the absolute, the plan MUST either scope the check to the diff ("no *new* occurrences", "none introduced by this change") or include a task that clears the baseline first. An absolute written without baseline evidence is a defect: it may be unsatisfiable before the plan starts.
 - **R10 Behaviour-anchored tests and guards.** Static or source-level guards (grep/regex assertions, snapshot guards, generated-fixture checks) MUST assert observable behaviour or a stable identity (a function/selector/key/section), never incidental expression text or line numbers. A guard that constrains *how* code is written rather than *what* it does is a defect. When a gate-forced refactor (complexity, format, lint) moves a guarded expression, the guard is re-pointed at the new stable identity in the same change and the re-point is logged; the guard's assertion strength must not be weakened.
 - **R11 Review-remediation authority.** STOP RULES are scoped to the task that carries them. The dedicated Code Review task (Task N-1 / Task R) MAY modify any artifact in its review scope from an earlier task — including that task's tests and guards — to remediate a finding, and MUST log each modification with its justification in the devlog. A cross-task conflict between a STOP RULE and a review finding is resolved in favour of the review: never ship a `FAIL` to satisfy a STOP RULE.
 - **R12 Producer–consumer representation fidelity.** When a task moves a value from where it is produced to a consumer that may expect a different representation (a stored encoding, a serialized form, a level-keyed map, a per-renderer field), the consuming task's CONSTRAINTS MUST quote the consuming site's expected representation with provenance, name the stored-form→consumed-form transformation (or cite the consuming site that proves none is needed), and carry at least one acceptance that feeds the producer's actual output through the real consumer path. Producer-side-only assertions — counts, key names, category labels — do not satisfy this rule when the consumer receives a different shape.
 - **R13 File budget enforcement.** Every coding task that modifies source files MUST include `agent_planning/scripts/quality_gate.sh --file-budget [modified_paths]` in its VERIFICATION (additive to the `--lang` complexity invocation). Caps: JS/TS 800, Go 500, Python 500, Bash 200 (spec: `addenda/file-budget.md §FB1`). An over-cap file is decomposed, or carries an in-file sentinel whose reason names the plan or issue that justifies the override. Enforcement is per-plan: only the plan's named paths are checked, so a plan that does not touch a file never gates it.
+- **R14 Browser-UI acceptance (Playwright).** A plan that adds or modifies a browser-rendered UI (any browser-context front-end source, a served SPA or static bundle, or a dashboard UI surface — see `addenda/web.md §W1`) MUST include a dedicated Playwright functional-test task **before** the Code Review task. The task runs the real surface, drives the real user path through the DOM, asserts observable behaviour (not module internals), covers the happy path and an error/refusal path, runs headless, and tears its server down. An operator browser checklist alone does NOT satisfy this rule. When Playwright genuinely cannot run, record `Playwright: N/A — <reason>` in the preamble and mark the task `⚠️ UNTESTED (playwright unavailable)`. See `addenda/web.md`.
 
 ### Inter-task data dependencies
 When a later task depends on data discovered by an earlier task, the plan author MUST NOT defer the values to runtime with placeholders. Instead:
@@ -431,11 +484,23 @@ Each task operates on at most ONE layer. If a feature spans layers, split into s
 
 - Keep plan introductions concise — every token counts.
 - Plans should stay within the model's practical planning window.
-- For very large plans (>15 tasks, or plans referencing large files), consider splitting into phases for cost predictability.
+- **Split by token budget, not by task count.** Task count is a fallback heuristic, not the sizing rule — see the plan-sizing rule below.
 - **Large file reference rule:** If any single file referenced by the plan's KEY FILES REFERENCE or CONTEXT sections exceeds 500 lines, the plan MUST include an explicit token budget estimate at the top of the OBJECTIVE section. Format: `Token budget: ~XXX K tokens (plan + N files: file1 L lines, file2 M lines)`. Distinct from the per-language file caps in `addenda/file-budget.md §FB1`, which govern authored files; this rule governs plan token budgets.
 - **Batch-task risk:** When a single task's STRUCTURE describes generating more than 200 lines of output, that task MUST be split into sub-tasks. The risk is attention fragmentation — the model exhausts focus on early details and silently skips later ones.
 
-**Model-specific context window sizes and phasing guidance:** See `deepseek/MODEL_ADDENDUM.md` §D1 or `minimax/MODEL_ADDENDUM.md` §M1.
+### Plan Sizing — the plan is the ticket
+
+A plan is the unit of deliverable work: its own execution directory, its own `STATE.md`, its own terminal Code Review. The spec lives *above* it (`agent_planning/openspec/specs/` for capability plans); the task lives *below* it. That makes the plan the ticket-equivalent, and it carries the ticket constraint:
+
+- **Size the plan to ~one smart zone (~150 K tokens) of fresh work.** Plan file + per-session context + the reading, editing, and verification the tasks demand — that is the budget. Estimate it from the reading load (files that must be read in full), the writing load, and the output the VERIFICATION commands will capture.
+- **This floor is deliberate and overrides the model addenda's capacity ceiling.** Past the smart zone a model keeps *completing* while accuracy degrades — a silent failure no gate detects. The addenda's figures answer a different question: *"will it fit?"*, not *"will it still work?"*. Capacity limits a plan that would not fit at all; the smart zone limits one that fits and stops working well. Both bind; the tighter one wins.
+- **A larger deliverable is two plans, not one plan with more tasks.** One deliverable end-state each. `§11 Sequential Plan Integrity` governs how they chain.
+- **Small plan file.** The plan is loaded every session, so ticket-style brevity is a context-budget measure as well as a staleness one: state behaviour and acceptance criteria, cite a path only where the path *is* the interface, and leave the rest to the codebase. Provenance marks (§6) are the deliberate exception — evidence costs tokens and earns them.
+- Record the estimate as a preamble line when the plan is near the budget: `Token budget: ~XXX K tokens (plan + N files: file1 L lines, …)`. Format and mandatory trigger: see the Large file reference rule above.
+
+**The 150 K figure is provisional.** It is inherited from observation of another workflow, not measured here (the operator's own unsystematic estimate was ~250 K). Treat it as a floor to be revised once telemetry records real plan budgets — tighten or loosen it on evidence, never on the next uncited number.
+
+**Model capacity guidance:** window sizes and hard capacity ceilings are in `deepseek/MODEL_ADDENDUM.md` §D1 or `minimax/MODEL_ADDENDUM.md` §M1. Those describe what the model *can* hold; the smart-zone floor above describes what it does *well*, and the floor governs plan sizing.
 
 ---
 
@@ -549,6 +614,76 @@ STOP RULES:
 - Stop if the same tool is called 3 times with no progress.
 - Stop if you are reading files outside the original scope in CONSTRAINTS.
 ```
+
+---
+
+## 8.6. Authoring Closeout — Reconciliation Pass (trial 2026-10-07)
+
+After the plan draft is complete, and before `plan_selfcheck.sh` or
+`plan_lint.sh` runs, the author performs ONE reconciliation pass: bounded,
+single-purpose, same agent (same session preferred). Its only objective is to
+make every claim in the plan true against the working tree. It is not a review,
+not a grade, and it does not change scope.
+
+- Verify claims about existing state; declared to-be-created outputs are out of
+  scope.
+- Checklist — eight classes: (1) re-run every cited command or its closest safe
+  equivalent; (2) re-count every stated number; (3) re-resolve every cited path
+  and symbol; (4) re-run every enumeration and diff the live set against the
+  plan's list (missing and phantom); (5) re-check every absolute/negative
+  baseline (R9); (6) quote the consumer's expected representation for every
+  cross-task value (R12); (7) resolve every provenance mark against its backing
+  evidence; (8) resolve every fork in the task text — a spec line, a resolved DR,
+  or the codebase. An unresolved fork is an unmade DR: promote it, ask it, record
+  it before execution (§0).
+- Downgrade anything unverifiable to `❌ ASSUMED` or `⚠️ UNTESTED` with a
+  reason. The pass ends when the deterministic gates are green and no
+  resolvable mark remains.
+- Record one preamble line: `Reconciliation: 12 claims verified, 2 corrected
+  (2026-10-07)` — or `Reconciliation: N/A — no repo-state claims`. Tier 1
+  plans are exempt.
+- Trial (adopted 2026-10-07): reviewed by the operator after 5 Tier-2/3 plans,
+  against recorded per-plan pass cost and catch data; removed if it
+  demonstrates no catch. The advisory `plan_lint.sh` record check mirrors this
+  subsection and never blocks a plan.
+
+---
+
+## 8.7. Plan Validation Dispatch (R7 — Tier 2/3)
+
+After the deterministic gates pass (`plan_lint.sh` exit 0, §8.6 reconciliation
+recorded, `plan_selfcheck.sh` clean) and BEFORE `init_execution_dir.sh`
+bootstraps execution, the plan MUST be validated by a **clean-context
+subagent** — the same discipline §9.0 (EXECUTION_PROTOCOL.md) imposes on Code
+Review. The author cannot validate their own plan: the reasoning that produced
+a defect is the reasoning that failed to notice it.
+
+- **Agent:** copy `agent_planning/reviewer/plan-validator.md` to
+  `.opencode/agents/plan-validator.md` and dispatch it as `plan-validator`.
+  It ships with `model: opencode/deepseek-v4.1-flash#max` pinned (operator
+  choice 2026-10-25 — flash at max effort is a deliberate cost/capability
+  pick; a DeepSeek-authored plan yields Row 0 `ADVISORY`, clean-context only,
+  which is an accepted trade, not a defect).
+- **Prompt carries:** the plan file path, the authoring model id, and the path
+  of this file (its §12 checklist is the validator's rubric). **Never** the
+  authoring transcript, DR rationale, or discovery narrative — that context is
+  the blind spot.
+- **Blocking:** the gate opens only on zero FAIL rows. Every FAIL is
+  remediated in the plan by the authoring session, then re-dispatched once.
+  A validation run by the authoring agent itself is a defect regardless of
+  what it reported. If no subagent dispatch is available, mark the plan
+  `⚠️ UNTESTED (validation)` with `[SCOPE-GAP]` and surface it to the operator.
+- **Recording:** one line in the plan preamble:
+  `Plan validation: 0 FAIL, N ADVISORY — plan-validator (opencode/deepseek-v4.1-flash#max) on YYYY-MM-DD`
+  A remediation re-dispatch appends `; re-validated YYYY-MM-DD`. Tier 1 plans
+  are exempt (TIER1_FASTPATH.md).
+- **`plan_review.sh` is not this gate.** It stays optional, operator-run,
+  single-pass, approval-gated, and cross-model — a separate tool, unaffected
+  by R7.
+- **No unattended-loop risk** (the failure mode that retired the 2026-10-04
+  R7): the validator is a harness-native subagent dispatch — it terminates and
+  returns its findings as data; it is not a shell tool an agent re-invokes
+  from a non-TTY session. One dispatch, plus one re-dispatch per remediation.
 
 ---
 
@@ -713,7 +848,12 @@ Before submitting any plan, verify:
 - [ ] Tier classified before discovery began
 - [ ] Tier 1: All 7 interview categories addressed or deferred
 - [ ] Tier 2/3: Domain-specific Decision Records generated by AI
-- [ ] Tier 2/3: Every DR has a resolved Decision and explicit Assumptions
+- [ ] Every DR carries `Owner`, enumerated `Options`, and a recommendation with a strength (or an explicit `none`)
+- [ ] Every DR's `Decision:` is resolved — an option letter, an authored decision, or an explicit `accept`; no bracketed placeholders (`plan_lint.sh` fails them)
+- [ ] Rounds were asked as the dependency frontier — no DR asked before its `Dependencies` resolve; new layers surfaced as answers landed were asked, not suppressed
+- [ ] Ledger acceptance test applied: Spec + DRs let a competent agent rebuild without inventing a design
+- [ ] Ownership defaults respected — design intent **and** structural forks taken by the user; only codebase-determined mechanics defaulted to the AI, recorded and overridable
+- [ ] Tier 1: any revealed fork was promoted to a mini-DR and resolved, not absorbed into a task
 - [ ] Tier 2/3: Discovery Summary produced and confirmed
 - [ ] Tier 3 only: Architecture Summary produced and confirmed
 - [ ] Restatement gate confirmed by user before plan authoring began
@@ -721,15 +861,17 @@ Before submitting any plan, verify:
 
 **Plan Structure**
 - [ ] OBJECTIVE section present and clear
+- [ ] Plan sized to ~one smart zone of fresh work — plan = ticket (§5 Plan Sizing); a larger deliverable is split into plans, not padded with tasks
 - [ ] PROJECT CONTEXT lists language, libraries, workflow
 - [ ] KEY FILES table maps all referenced paths
 - [ ] Each task has: INTENT, STRUCTURE, CONTEXT, CONSTRAINTS, DON'T, VERIFICATION
 - [ ] Each task touches only ONE pipeline layer
-- [ ] Tasks are explicitly ordered
+- [ ] Tasks are explicitly ordered — **execution is serial**; the frontier in §0 orders *DRs*, not tasks. A task-level `blocked_by` edge is not yet modelled (deferred with the ticket-graph work)
 - [ ] Naming is specified for all new files/functions/variables
 - [ ] No contradictions between tasks
 - [ ] Verification claims marked with provenance (✅ VERIFIED / ❌ ASSUMED / ⚠️ STALE)
 - [ ] All commands/queries/API calls marked with provenance (✅ TESTED / ✅ VERIFIED-ABSENT / 📖 FROM-DOCS / ⚠️ UNTESTED)
+- [ ] Reconciliation pass recorded in the preamble (PLAN_CORE §8.6) — or an explicit N/A
 - [ ] ⚠️ UNTESTED commands have a verification step before their output is used
 - [ ] Change-impact: every task changing an interface, an ordered output, or a guarded branch pastes its dependent listing / incumbent-shape quote / guard quote into CONSTRAINTS, and no source reference uses a line number (§2 Change-Impact Enumeration)
 
@@ -751,20 +893,21 @@ Before submitting any plan, verify:
 - [ ] `init_execution_dir.sh` home repo named
 - [ ] Downstream blast radius of any sync step named (every repo the sync writes to)
 
-**Cross-cutting framework rules (R1–R13)**
+**Cross-cutting framework rules (R1–R14)**
 - [ ] R1: Destructive ops in the plan include an explicit operator-confirm step between dry-run and apply
 - [ ] R2: Async / job-queued API consumers include poll-until-drained with a wall-clock STOP
 - [ ] R3: Collection results have either a named element schema or a `⚠️ UNTESTED` dump step
 - [ ] R4: Every skill named in a task has its format/constraints transcribed into the task body
 - [ ] R5: Every §12 checklist item carries evidence (`✅ VERIFIED via <command> on <date>`, `❌ ASSUMED`, `⚠️ STALE`, or equivalent); the `§12 pass: <n>` preamble number is optional when `plan_lint.sh` R5 §12 coverage output is preserved in the devlog. Aggregate-count alone is insufficient; an item without evidence is not passed. Framework plans re-record `n` at closeout against the post-change file.
 - [ ] R6: Deployment plans place the Code Review task before the first deploy/apply task; deploy tasks gate on review pass (CQ9.6)
-- [ ] R7: Pre-execution semantic reviewer ran before bootstrap (REQUIRED for Tier 3 plans and for Tier 2 plans that touch a remote system, public interface, schema/migration, secrets, or more than one repo); preamble carries the recorded review line OR the waiver record `R7 waived (narrow trigger)` for an exempted local Tier 2 plan; no `FAIL` finding remains unresolved
+- [ ] R7: Tier 2/3 plan validated by the clean-context `plan-validator` subagent (§8.7) after lint/selfcheck and before bootstrap; validation line recorded in the preamble; 0 FAIL rows. Tier 1 exempt
 - [ ] R8: Every acceptance criterion is assertable — present/absent, exact count, exact string, exit code, or named fixture; no subjective adjective stands as a criterion
 - [ ] R9: Every absolute/negative check ("returns nothing", "expect 0", "no X") was run against the pre-change tree at authoring and cites the baseline result, or is explicitly scoped to the diff, or the plan clears the baseline first
 - [ ] R10: Source-level/static guards assert behaviour or a stable identity, never incidental expression text or line numbers; guard re-pointing is logged
 - [ ] R11: STOP RULES are task-scoped; the Code Review task may remediate an earlier artifact (guards included) and logs each modification
 - [ ] R12: every producer→consumer value move quotes the consumer's expected representation with provenance, names the stored→consumed transform (or cites the proof none is needed), and carries one acceptance through the real consumer path
 - [ ] R13: every coding task that modifies source files includes `agent_planning/scripts/quality_gate.sh --file-budget [modified_paths]` in its VERIFICATION; over-cap files are decomposed or carry a sentinel whose reason names the justifying plan (caps: `addenda/file-budget.md §FB1`)
+- [ ] R14: every web-related plan (browser-rendered UI — `addenda/web.md §W1`) has a dedicated Playwright functional-test task before Code Review, driving the DOM and asserting observable behaviour; OR carries `Playwright: N/A — <reason>` with the task marked `⚠️ UNTESTED (playwright unavailable)`
 - [ ] Asserted-identity co-scheduling: every task changing an id/key/symbol/flag/path/storage key pastes the asserting-artifact listing and updates it same-task, or declares the stale window
 - [ ] Replaced-surface enumeration: every task removing or replacing a behaviour surface enumerates the old behaviours including the degenerate case, and states where each lands or why it is dropped
 - [ ] State-lifecycle declaration: every task introducing mutable state names its create/read/clear paths and the sibling-reset handlers it joins

@@ -10,11 +10,11 @@ This addendum contains V4 Pro-specific prompting conventions, failure mode defen
 
 **Granularity relaxation:** The PLAN_CORE.md ~50 line target may be relaxed to **~100 lines** for V4 Pro. Tasks over 150 LOC increase the risk of silent incompletion.
 
-**Plan size limit:** Break large plans (>12 tasks) into two sequential plans with explicit non-regression constraints.
+**Plan size limit:** governed by PLAN_CORE.md §5 (Plan Sizing) — split by **token budget (~150 K)**, not task count. The ~500 K figure below is a *capacity* ceiling (will it fit in the window), not a *quality* target; the §5 smart-zone floor is the binding one and is deliberately tighter. When a plan is split, chain the halves with explicit non-regression constraints.
 
 **Token budget guidance:**
 - Keep plan introductions concise. Front-load role and task before any large context block.
-- Plans should stay under ~500K total tokens (plan + code read + expected output).
+- Plans should stay under ~500K total tokens (plan + code read + expected output) — the hard capacity ceiling. The working target is PLAN_CORE.md §5's ~150 K smart zone.
 - For Think Max tasks: size `max_tokens` to at least 8x the expected output length to accommodate the reasoning trace.
 
 **Cache-friendly layout:**

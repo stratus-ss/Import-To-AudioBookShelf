@@ -10,11 +10,11 @@ This addendum contains M3-specific prompting conventions, failure mode defenses,
 
 **Granularity relaxation:** The PLAN_CORE.md ~50 line target may be relaxed to **~100 lines** for well-scoped tasks where structure and context are fully specified. The limit still applies to tasks involving complex cross-file logic, new abstractions, or schema changes — those remain single-focused at ~50 lines.
 
-**Plan size limit:** The ">8 tasks → split into two plans" rule is relaxed to ">15 tasks" for M3.
+**Plan size limit:** governed by PLAN_CORE.md §5 (Plan Sizing) — split by **token budget (~150 K)**, not task count. The ~800 K figure below is a *capacity* ceiling (will it fit in the window), not a *quality* target; the §5 smart-zone floor is the binding one and is deliberately tighter.
 
-**Phased splitting:** Phased window approach is NO LONGER REQUIRED for plans ≤15 tasks. M3 can hold the full plan, codebase, and skill docs in one session without goal drift. For very large plans (>15 tasks, or plans referencing >300K tokens of repo context), still consider splitting — not for context capacity, but to keep per-session cost predictable.
+**Phased splitting:** M3 can physically hold the full plan, codebase, and skill docs in one session without exceeding its window — so phased splitting is never required *for capacity*. It is required for **quality**: past PLAN_CORE.md §5's ~150 K smart zone the model keeps completing while accuracy degrades, and no gate detects that. For very large plans (>300 K tokens of repo context, or >150 K of plan work), split for accuracy, not to keep per-session cost predictable.
 
-**Total session token guidance:** Plans are sized for M3's 1M window; phased splitting is only required if total session tokens would exceed ~800K.
+**Total session token guidance:** the hard capacity ceiling is ~800 K of total session tokens. The working target is PLAN_CORE.md §5's ~150 K smart zone. Split on the tighter one.
 
 ---
 

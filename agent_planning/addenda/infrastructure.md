@@ -268,6 +268,7 @@ Every plan that adds or modifies an MCP tool, API endpoint, CLI subcommand, or p
 - The test MUST exercise the production entrypoint using the same protocol as production
 - Never verify by module introspection alone (`_tool_manager._tools` proves registration, not correctness)
 - Test both happy path AND error path
+- **Browser UI:** when the entrypoint is a browser-rendered UI, the functional task MUST use **Playwright** and drive the DOM — an operator browser checklist is not a substitute. See `addenda/web.md` (rule R14).
 
 **Anti-patterns to reject:**
 ```
@@ -284,7 +285,7 @@ python -c "import my_module; print('OK')"
 
 In addition to the universal checklist, verify:
 
-**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Infrastructure-specific triggers per rule:
+**Cross-cutting framework rules (R1–R14):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Infrastructure-specific triggers per rule:
 
 - **R1** operator-confirm between dry-run and apply is mandatory for any plan that calls `terraform apply`, `kubectl apply`, `ansible-playbook` without `--check`, or remote `DROP`/`DELETE`/`rm -rf`.
 - **R2** long-running deploy APIs require explicit poll-until-drained.

@@ -74,7 +74,7 @@ FAIL: <failure condition>
 
 ## What you skip at Tier 1
 
-- Decision Records (DRs) — not needed for small, reversible tasks
+- Decision Record **ledger** — not needed for small, reversible tasks. A single **mini-DR** is still required if an interview answer reveals a fork (irreversible, expensive to change, silent failure mode, or it gates other work); a mini-DR carries the full §0 record including the `Owner` tag.
 - Domain addendum — skip unless the task touches a domain with real risk (see below)
 - Model addendum — skip unless you need to tune reasoning effort or context budget
 - EXECUTION_PROTOCOL.md artifacts (SESSION_BRIEF, HANDOFF, TASK_QUEUE) — only required for Tier 2/3 plans

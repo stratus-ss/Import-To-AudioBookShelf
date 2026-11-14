@@ -106,14 +106,65 @@ Code must be understandable to a new contributor in one pass.
 - No triple-nested spread/rest/unpacking
 - No obtuse one-liners
 
+### No changelog comments
+
+A comment that narrates a **change event** is banned. History has two
+authoritative homes — `git log -S` and the execution devlog under
+`agent_planning/execution/<project>/devlogs/` — and a third copy in the
+source is pure cost. Write the **rule**, not the **revision**.
+
+Banned signals: a ticket or plan slug (`my-project-feature`, `ACME-142`),
+a task/phase number (`Task 6`, `Phase 2`), an ISO date, a version or cap
+bump (`Bumped 1400 -> 1500`, `sentinel raised 180->260`).
+
+```
+// BAD  my-project-feature Task 6 (DR-4): the caster's summons vanish
+// GOOD the caster's summons vanish with the concentration
+```
+
+Comments explaining **why** code is shaped as it is are the opposite of
+slack and stay, however long they run — a comment documenting a
+partial-refresh bug surface is the file earning its budget. Keep bare
+requirement anchors (`DR-N`) that point at a live spec. Keep any comment
+line a tool parses, such as a `file-budget:` sentinel.
+
+Two costs make this worth enforcing rather than merely advising:
+
+1. **Tokens.** Every comment line is re-read by every agent that opens the
+   file, on every future task that touches it.
+2. **Code budget.** Where a per-file line cap exists (see
+   `addenda/file-budget.md`), it counts *every* line, so comment prose
+   directly steals the room the next task needs to grow. Stripping them
+   once is not enough; the noise returns with the next task. Enforce it
+   mechanically (a grep gate in the repo's own test/script suite)
+   rather than trusting review.
+
+Two failure modes re-plant the noise; both are bound here:
+
+- **A plan that prescribes provenance.** The plan is the executor's
+  instruction surface. A task line like "update the comment above it to
+  state the arithmetic: `... = 36. my-project-feature Task 7.`" teaches the
+  executor to write exactly what this section bans — and it complies.
+  Comment text quoted inside a plan is subject to this rule; a plan asking
+  for a rationale asks for the **why**, never the **when** or the
+  **which task**.
+- **A gate scoped to reviewed files.** Enforcement that covers only a
+  hand-curated list of already-cleaned files cannot stop writes in the
+  files nobody has reviewed yet — which is exactly where in-flight work
+  lands. Scan every first-party source file a task can touch; carry
+  pre-existing debt in a baseline that must shrink, never grow. A curated
+  allowlist is an audit trail, not the gate.
+
 ### Verification
 
 ```
 MAINTAINABILITY CHECK:
   1. rg '<nested-comprehension-pattern>' <files>
   2. rg '\?.*\?' <files>                  # nested ternaries
-  3. Visually inspect method chain depth (<=2)
-  4. Read each modified function for newcomer clarity
+  3. rg '(ticket-or-plan-slug|Task \d+|20\d\d-\d\d-\d\d|Bumped)' <files>
+                                           # changelog comments (whole-line //)
+  4. Visually inspect method chain depth (<=2)
+  5. Read each modified function for newcomer clarity
 PASS: no violations
 ```
 
@@ -243,7 +294,7 @@ Wrapper: `agent_planning/scripts/quality_gate.sh [--lang auto|python|go|ts|bash]
 
 ## CQ8. Checklist (extends PLAN_CORE §12)
 
-**Cross-cutting framework rules (R1–R13):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Code-producing plans must additionally satisfy: **R1** confirm destructive test fixture setup with the operator before apply; **R2** drain any job-queued test/CI call with a wall-clock STOP; **R3** name the response field schema of every API the plan's tests consume (or carry `⚠️ UNTESTED`); **R9** run every absolute/negative check against the pre-change tree at authoring and cite the baseline, or scope it to the diff; **R10** anchor static/source-level guards at behaviour or a stable identity, never expression text (re-point and log when a gate-forced refactor moves it); **R13** include `quality_gate.sh --file-budget` in every coding task's VERIFICATION (caps in `addenda/file-budget.md §FB1`).
+**Cross-cutting framework rules (R1–R14):** see `PLAN_CORE.md §2 — Cross-cutting framework rules` for the canonical rule text. Code-producing plans must additionally satisfy: **R1** confirm destructive test fixture setup with the operator before apply; **R2** drain any job-queued test/CI call with a wall-clock STOP; **R3** name the response field schema of every API the plan's tests consume (or carry `⚠️ UNTESTED`); **R9** run every absolute/negative check against the pre-change tree at authoring and cite the baseline, or scope it to the diff; **R10** anchor static/source-level guards at behaviour or a stable identity, never expression text (re-point and log when a gate-forced refactor moves it); **R13** include `quality_gate.sh --file-budget` in every coding task's VERIFICATION (caps in `addenda/file-budget.md §FB1`).
 
 Plan authoring:
 - [ ] Library Context table present
@@ -283,17 +334,46 @@ Review task must be tailored and include:
 - for every absolute/negative check in STRUCTURE ("returns nothing", "no nested X", "expect 0"), the pre-change baseline command and its authoring-time result — or an explicit `⚠️ UNTESTED (baseline)` mark, or a diff-scoped rewording (R9)
 - CQ9.3 output format (findings table with PASS/FAIL/ADVISORY counts) referenced in STRUCTURE as a required deliverable
 - the R11 remediation clause: the review MAY modify in-scope artifacts from earlier tasks (including their guards) and logs each modification
+- a reviewer-dispatch clause naming the clean-context reviewer (CQ9.2 / `EXECUTION_PROTOCOL.md §9.0`) and the `REVIEWER:` devlog line the review must record
+- a re-review bound: the review task's CONSTRAINTS states the 2-round cap and the `⚠️ BLOCKED (loop cap)` escalation (`EXECUTION_PROTOCOL.md §9`, Review Loop Cap)
 
-### CQ9.2 Model Switch Pause (opt-in)
+### CQ9.2 Reviewer Dispatch and Model Selection
 
 Before starting the Code Review task (Task N-1 for non-deployment plans, Task R
 for deployment plans), execution must:
 1. Complete all authoring/implementation/testing tasks
 2. Perform full state writeback
-3. **Default:** proceed with the current model — a cross-model pass already occurs because the review wrapper's default reviewer model differs from a DeepSeek author.
-4. **Opt-in:** if the operator requests a model switch (one-line), update HANDOFF and stop.
+3. **Dispatch a clean-context reviewer** per `EXECUTION_PROTOCOL.md §9.0` — a subagent
+   that did not author the code. The authoring agent does not perform the review.
+4. Choose the reviewer model. Default: the reviewer's configured model, which is a
+   *different model from the author* by construction — that cross-model property is
+   the point, so do not silently pin it to the author's id. Override on operator
+   request (one line), updating HANDOFF/STATE before dispatch.
+5. Run in background when the scope is large; block on the result before remediating.
+6. **Observe the Review Loop Cap** — `EXECUTION_PROTOCOL.md §9`. Two rounds per
+   gate (initial dispatch + one re-review after remediation). If round 2 is still
+   blocking: mark the task `⚠️ BLOCKED (loop cap — Code Review, 2 rounds)`, write
+   the `Loop cap hit` HANDOFF section, and hand back to the operator. A third round
+   requires an explicit operator override logged as `LOOP-CAP OVERRIDE:`. Never
+   self-grant one, and never convert a cap stop into a promotion ("ready to ship
+   with N open findings" is a defect).
 
-This is opt-in, not a mandatory pre-review round-trip. The cross-model review remains in effect by default; the operator may override the model on request.
+**Retired:** the previous claim that "a cross-model pass already occurs because the
+review wrapper's default reviewer model differs from a DeepSeek author." That held only
+when the author was DeepSeek. When the author is any other model — or when no review
+wrapper runs at all — the property silently did not exist, and the review degraded to
+a same-model, same-context self-review without any signal that it had. The clean-context
+subagent dispatch makes the property structural instead of incidental.
+
+A Code Review task with no reviewer dispatch recorded in its devlog is `⚠️ UNTESTED`,
+not `done`.
+
+**The same dispatch discipline applies to the Playwright functional pass.** An
+author-run functional test is a self-review in a different costume: the author
+adjusts the test until it agrees with their belief that the feature works. Web
+plans dispatch a clean-context `playwright-tester` subagent on a pinned,
+cross-model dispatch and record Row 0 — see `addenda/web.md` W2.1/W2.2 and
+`EXECUTION_PROTOCOL.md §9.0`.
 
 ### CQ9.3 Required review output
 
@@ -356,7 +436,9 @@ distinction is runtime mutation (deployment) vs. source distribution (not).
    (scripts, playbooks, configs, manifests) — not a summary of them.
 3. Each deployment task's CONSTRAINTS MUST include: "Do NOT begin this task
    unless the Code Review task has passed. If review returned FAIL findings,
-   stop and resolve them, then re-review before deploying."
+   resolve them and re-review once (EXECUTION_PROTOCOL.md §9, Review Loop Cap);
+   if round 2 is still blocking, mark the review `⚠️ BLOCKED (loop cap)` and
+   escalate to the operator. Do NOT deploy."
 4. Doc Update remains the final task in both layouts.
 5. For plans with no deployment task, CQ9.4's penultimate rule applies unchanged.
 

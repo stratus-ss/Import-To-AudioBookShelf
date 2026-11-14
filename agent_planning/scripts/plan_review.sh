@@ -1,46 +1,81 @@
 #!/usr/bin/env bash
-# Semantic reviewer wrapper. Shells out to the `opencode` CLI to run the
-# cross-model reviewer on a plan, captures the response, strips ANSI escapes,
-# and extracts the final non-empty line as JSON. The reviewer is advisory:
-# this script exits 0 regardless of the reviewer's findings; only invocation
-# failures (opencode missing, plan file missing) exit non-zero.
+# Semantic reviewer wrapper — SINGLE PASS, operator-gated.
 #
-# Plans larger than ~48 KB are split into task-aligned parts; ALL parts are
-# attached to a SINGLE opencode invocation (multi-file attach, plan parts in
-# order + the self-check output), so one reviewer session sees the whole plan
-# and cross-task contracts stay reviewable. If the multi-file invocation
-# fails, the wrapper falls back to sequential per-part reviews (the
-# pre-2026-09-28 behavior). The split exists because opencode truncates a
-# single attached file at ~50 KB with no CLI override — each PART stays under
-# that per-file limit. Override the threshold with PLAN_REVIEW_MAX_BYTES.
+# Shells out to the `opencode` CLI to run the cross-model reviewer on a plan,
+# captures the response, strips ANSI escapes, and extracts the review JSON.
+# The reviewer is advisory: this script exits 0 when a review completes,
+# regardless of the findings; only invocation/gate failures exit non-zero.
+#
+# Single-pass policy (framework default): the reviewer runs EXACTLY ONCE per
+# plan. Two gates protect the model budget:
+#   1. Operator approval — the script refuses to invoke the model unless the
+#      operator passes --approved (or sets PLAN_REVIEW_APPROVED=1). Without it
+#      a preflight cost estimate is printed and the script exits 2.
+#   2. Hard single-pass — a plan already recorded in the review ledger is
+#      hard-refused (exit 3) unless --force is given. Fix the FAIL findings and
+#      move on; do NOT re-review.
+# The review ledger lives at agent_planning/execution/_review_ledger.jsonl
+# (gitignored, local-only; override with PLAN_REVIEW_LEDGER). A refused or
+# planning-only invocation consumes no ledger entry.
+#
+# Model is REQUIRED: pass --model provider/name or set PLAN_REVIEW_MODEL.
+# There is no silent default, so review spend never lands on a model the
+# operator did not choose.
+#
+# Plans larger than ~48 KB are split into task-aligned parts attached to a
+# SINGLE opencode invocation (plan parts in order + the self-check output).
+# opencode truncates a single attached file at ~50 KB with no CLI override, so
+# each PART stays under that per-file limit (override with
+# PLAN_REVIEW_MAX_BYTES). If the multi-file invocation fails, the script FAILS
+# LOUDLY — it does NOT fall back to sequential per-part reviews (that silently
+# multiplied the cost by the part count).
 #
 # Usage:
-#   ./scripts/plan_review.sh <plan.md> [--out <path>] [--model <provider/name>]
+#   ./scripts/plan_review.sh <plan.md> --model <provider/name> [--out <path>] --approved [--force]
 #   ./scripts/plan_review.sh --help
 #
 # Exit codes:
 #   0 — review completed (findings may or may not exist; advisory)
-#   1 — invocation failure (opencode not on PATH, plan missing, etc.)
+#   1 — invocation failure (opencode not on PATH, plan missing, no model, etc.)
+#   2 — operator approval required (preflight printed; nothing was spent)
+#   3 — refused: plan already reviewed once (single-pass policy; --force overrides)
+#   4 — refused: review disabled, or run without an interactive terminal
+#       (an agent must not run this; see the unattended guard below)
+#
+# Unattended guard (added 2026-10-04): after an agent ran repeated reviews
+# unattended against an explicit operator "skip it" instruction, this tool
+# refuses to run unless it has an interactive terminal, or the operator sets
+# PLAN_REVIEW_AUTORUN=1. It also honours a kill switch: PLAN_REVIEW_DISABLED=1
+# or a sentinel file at agent_planning/execution/.no-plan-review.
 #
 # Auth: the opencode CLI reads its provider key from
 # `~/.local/share/opencode/auth.json`. This script does NOT accept or store
-# credentials. If you need a different model, pass `--model provider/name`.
+# credentials.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUBRIC_FILE="$SCRIPT_DIR/../prompts/plan_review_rubric.md"
-DEFAULT_MODEL="minimax/MiniMax-M3"
+# No silent default model — require --model or PLAN_REVIEW_MODEL (see header).
+# Realistic per-invocation budget: MiniMax-class reviewer models report 8+ min
+# TTFT on complex plans, so a short timeout burns a pass and forces a retry —
+# the exact cost this wrapper exists to prevent. Override per environment.
+REVIEW_TIMEOUT_SINGLE="${PLAN_REVIEW_TIMEOUT_SINGLE:-1800}"
+REVIEW_TIMEOUT_MULTI="${PLAN_REVIEW_TIMEOUT_MULTI:-3600}"
+REVIEW_TIMEOUT="$REVIEW_TIMEOUT_SINGLE"
 # opencode truncates a single attached file at ~50 KB with no CLI override, so
 # a larger plan is split into task-aligned parts, each under the per-file
 # limit, and attached together to one reviewer invocation.
 # Override the split threshold with PLAN_REVIEW_MAX_BYTES.
 MAX_BYTES="${PLAN_REVIEW_MAX_BYTES:-48000}"
-# Per-invocation opencode timeout. The multi-file whole-plan review gets a
-# larger budget (it does the work the sequential parts used to split).
-REVIEW_TIMEOUT_SINGLE=240
-REVIEW_TIMEOUT_MULTI=600
-REVIEW_TIMEOUT="$REVIEW_TIMEOUT_SINGLE"
+# Review ledger (single-pass enforcement) and operator-approval state.
+LEDGER="${PLAN_REVIEW_LEDGER:-$(cd "$SCRIPT_DIR/.." && pwd)/execution/_review_ledger.jsonl}"
+APPROVED=0
+FORCE=0
+FORCE_OK=0
+LAST_RAW_BYTES=0
+if [[ "${PLAN_REVIEW_APPROVED:-0}" == "1" ]]; then APPROVED=1; fi
+if [[ "${PLAN_REVIEW_FORCE_OK:-0}" == "1" ]]; then FORCE_OK=1; fi
 
 # opencode CLI compatibility (V1 vs V2). V1 accepted the global `--pure` flag
 # ("run without external plugins"). V2 removed it: `opencode run --pure ...`
@@ -61,35 +96,32 @@ detect_opencode_cli() {
 
 PLAN=""
 OUT=""
-MODEL="$DEFAULT_MODEL"
+MODEL="${PLAN_REVIEW_MODEL:-}"
+
+usage() {
+  echo "Usage: $0 <plan.md> --model <provider/name> [--out <path>] [--approved] [--force]" >&2
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out)
       OUT="${2:-}"
-      if [[ -z "$OUT" ]]; then
-        echo "Usage: $0 [--model <provider/name>] [--out <path>] <plan.md>" >&2
-        exit 1
-      fi
+      if [[ -z "$OUT" ]]; then usage; exit 1; fi
       shift 2
       ;;
     --model)
       MODEL="${2:-}"
-      if [[ -z "$MODEL" ]]; then
-        echo "Usage: $0 [--model <provider/name>] [--out <path>] <plan.md>" >&2
-        exit 1
-      fi
+      if [[ -z "$MODEL" ]]; then usage; exit 1; fi
       shift 2
       ;;
+    --approved) APPROVED=1; shift ;;
+    --force) FORCE=1; shift ;;
     -h|--help)
-      sed -n '2,16p' "$0" | sed 's/^# \?//'
+      sed -n '2,45p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *)
-      if [[ -n "$PLAN" ]]; then
-        echo "Usage: $0 [--model <provider/name>] [--out <path>] <plan.md>" >&2
-        exit 1
-      fi
+      if [[ -n "$PLAN" ]]; then usage; exit 1; fi
       PLAN="$1"
       shift
       ;;
@@ -98,7 +130,7 @@ done
 
 if [[ -z "$PLAN" ]]; then
   echo "[plan_review] FAIL — plan file argument required" >&2
-  echo "[plan_review] Usage: $0 <plan.md> [--out <path>] [--model <provider/name>]" >&2
+  usage
   exit 1
 fi
 
@@ -124,17 +156,100 @@ fi
 # Resolve the V1/V2-specific invocation flags once (see detect_opencode_cli).
 detect_opencode_cli
 
+# ── Kill switch + unattended guard ─────────────────────────────────────────
+# Two hard stops that exist because an agent once ran repeated reviews
+# unattended against an explicit operator "skip it" instruction:
+#   1. Kill switch — PLAN_REVIEW_DISABLED=1, or a sentinel file, refuses all runs.
+#   2. Unattended refusal — this tool only runs from an interactive terminal.
+#      An agent-run shell has no TTY, so it cannot start a review on its own.
+#      PLAN_REVIEW_AUTORUN=1 is the explicit operator opt-in for a headless run.
+SENTINEL="$SCRIPT_DIR/../execution/.no-plan-review"
+if [[ "${PLAN_REVIEW_DISABLED:-0}" == "1" || -f "$SENTINEL" ]]; then
+  echo "[plan_review] REFUSED — plan review is disabled (PLAN_REVIEW_DISABLED=1 or $SENTINEL)." >&2
+  exit 4
+fi
+if [[ ! -t 0 && "${PLAN_REVIEW_AUTORUN:-0}" != "1" ]]; then
+  echo "[plan_review] REFUSED — no interactive terminal. Plan review must be operator-run (this tool is not the R7 gate)." >&2
+  echo "[plan_review]   An agent must NOT run this. For a deliberate headless run the operator sets PLAN_REVIEW_AUTORUN=1." >&2
+  echo "[plan_review]   To disable review entirely: PLAN_REVIEW_DISABLED=1 or create $SENTINEL" >&2
+  exit 4
+fi
+
+# ── Model requirement (no silent default) ──────────────────────────────────
+if [[ -z "$MODEL" ]]; then
+  echo "[plan_review] FAIL — no reviewer model. Pass --model <provider/name> or set PLAN_REVIEW_MODEL." >&2
+  exit 1
+fi
+
+# ── Operator approval + hard single-pass gate ──────────────────────────────
+# This is the anti-loop gate. It refuses to spend model tokens unless the
+# operator approved the run, and hard-refuses a second run of the same plan.
+PLAN_ABS="$(cd "$(dirname "$PLAN")" && pwd)/$(basename "$PLAN")"
+
+ledger_prior() {
+  [[ -f "$LEDGER" ]] || { echo 0; return 0; }
+  python3 - "$LEDGER" "$PLAN_ABS" <<'PYLEDGER' 2>/dev/null || echo 0
+import json, sys
+n = 0
+try:
+    for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get("plan") == sys.argv[2]:
+            n += 1
+except OSError:
+    pass
+print(n)
+PYLEDGER
+}
+
+preflight() {
+  local bytes rubric_bytes prior est timeout_used
+  bytes=$(wc -c < "$PLAN")
+  rubric_bytes=$(wc -c < "$RUBRIC_FILE")
+  prior="$(ledger_prior)"
+  est=$(( (bytes + rubric_bytes) / 4 ))
+  timeout_used="$REVIEW_TIMEOUT_SINGLE"
+  if [[ "$bytes" -gt "$MAX_BYTES" ]]; then timeout_used="$REVIEW_TIMEOUT_MULTI"; fi
+  echo "[plan_review] preflight:"
+  echo "[plan_review]   plan:            $PLAN_ABS (${bytes} B)"
+  echo "[plan_review]   rubric:          $(basename "$RUBRIC_FILE") (${rubric_bytes} B)"
+  echo "[plan_review]   reviewer model:  $MODEL"
+  echo "[plan_review]   prior reviews:   ${prior}"
+  echo "[plan_review]   est input cost:  ~${est} tokens (plan + rubric; excludes reviewer output/tool turns)"
+  echo "[plan_review]   timeout:         ${timeout_used}s"
+}
+
+prior="$(ledger_prior)"
+if [[ "$prior" -gt 0 && ( "$FORCE" -eq 0 || "$FORCE_OK" -eq 0 ) ]]; then
+  echo "[plan_review] REFUSED — single-pass policy: this plan was already reviewed ${prior} time(s)." >&2
+  echo "[plan_review]   Fix the recorded FAIL findings and move on." >&2
+  echo "[plan_review]   Re-review requires --force AND the operator env PLAN_REVIEW_FORCE_OK=1." >&2
+  echo "[plan_review]   ledger: $LEDGER" >&2
+  exit 3
+fi
+
+if [[ "$APPROVED" -eq 0 ]]; then
+  preflight
+  echo "[plan_review] NOT RUN — operator approval required. Re-run with --approved (or PLAN_REVIEW_APPROVED=1) to spend the estimate above." >&2
+  exit 2
+fi
+
+echo "[plan_review] approved: model=$MODEL prior=$prior plan=$PLAN_ABS" >&2
+
 # ── strip ANSI escape sequences from captured output ───────────────────────
 strip_ansi() {
   sed -E $'s/\x1B\\[[0-9;]*[a-zA-Z]//g; s/\x1B[@_]//g; s/\r$//'
 }
 
 # ── extract a JSON object from captured output; emit a JSON result ──────────
-# Strategy: parse the whole text; else take the FIRST balanced { ... } object;
-# else each non-empty single-line object last-to-first. The balanced scan is
-# required because the reviewer rubric asks for the object TWICE (a fenced
-# block plus a bare echo), so a naive first-{ to last-} span contains both
-# copies and fails to parse ("Extra data").
+# Strategy: parse the whole text; else take the FIRST balanced { ... } object
+# (preferring one carrying a "grade" key); else each non-empty single-line
+# object last-to-first. The balanced scan tolerates a fenced block plus
+# surrounding reasoning text, and still parses legacy replies that echoed the
+# object twice (rubric <= v1.4).
 extract_json() {
   local raw="$1"
   local stripped
@@ -269,6 +384,8 @@ review_once() {
     echo "$raw" >&2
     return 1
   }
+  LAST_RAW_BYTES=$(printf '%s' "$raw" | wc -c)
+  if [[ -n "${RAWSIZE_FILE:-}" ]]; then printf '%s' "$LAST_RAW_BYTES" > "$RAWSIZE_FILE"; fi
   extract_json "$raw"
 }
 
@@ -314,46 +431,6 @@ print("\n".join(paths))
 PYSPLIT
 }
 
-# ── merge per-chunk reviewer JSON into one findings object ──────────────────
-merge_json() {
-  # $1 = output path; rest = chunk JSON files
-  python3 - "$@" <<'PYMERGE'
-import json, sys
-out, files = sys.argv[1], sys.argv[2:]
-GRADES = ["F","D","C-","C","C+","B-","B","B+","A-","A","A+"]
-grade, score, findings, summaries, chunks, models = "A+", 100, [], [], [], []
-for fn in files:
-    try:
-        d = json.load(open(fn))
-    except Exception:
-        continue
-    if not isinstance(d, dict) or "error" in d:
-        continue
-    chunks.append(fn)
-    findings.extend(d.get("findings", []) or [])
-    s = d.get("score")
-    if isinstance(s, int):
-        score = min(score, s)
-    g = d.get("grade")
-    if g in GRADES and GRADES.index(g) < GRADES.index(grade):
-        grade = g
-    if d.get("summary"):
-        summaries.append(str(d["summary"]))
-    if d.get("model"):
-        models.append(str(d["model"]))
-merged = {
-    "grade": grade if chunks else "F",
-    "score": score if chunks else 0,
-    "findings": findings,
-    "summary": (" ".join(summaries) if summaries
-                else "chunked review: no parsable chunk output"),
-    "chunks_reviewed": len(chunks),
-    "model": models[0] if models else "",
-}
-print(json.dumps(merged))
-PYMERGE
-}
-
 # ── run plan_selfcheck.sh once and capture output for the reviewer to read ─
 run_selfcheck() {
   local selfcheck_script="$SCRIPT_DIR/plan_selfcheck.sh"
@@ -368,15 +445,18 @@ run_selfcheck() {
 # ── main: invoke the reviewer (single call, or chunked for oversize plans) ──
 main() {
   mkdir -p "$(dirname "$OUT")"
-  local size review_json
+  local size review_json MAIN_START
+  MAIN_START=$(date +%s)
   size=$(wc -c < "$PLAN")
 
   # Run the deterministic self-check once; attach the output to every chunk
   # so the reviewer can defer baseline/enumeration checks to a checked source.
-  local selfcheck_tmp=""
+  local selfcheck_tmp="" rawsize_file
+  rawsize_file="$(mktemp -t plan_review_rawsize_XXXXXX)"
+  RAWSIZE_FILE="$rawsize_file"
   selfcheck_tmp="$(mktemp -t plan_review_selfcheck_XXXXXX.txt)"
   # shellcheck disable=SC2064
-  trap "rm -f '$selfcheck_tmp'" EXIT
+  trap "rm -f '$selfcheck_tmp' '$rawsize_file'" EXIT
   if run_selfcheck "$selfcheck_tmp"; then
     echo "[plan_review] attached deterministic self-check (plan_selfcheck.sh)" >&2
   else
@@ -392,7 +472,7 @@ main() {
     local tmpd chunks
     tmpd="$(mktemp -d)"
     # shellcheck disable=SC2064
-    trap "rm -rf '$tmpd' '$selfcheck_tmp'" EXIT
+    trap "rm -rf '$tmpd' '$selfcheck_tmp' '$rawsize_file'" EXIT
     echo "[plan_review] plan is ${size}B (> ${MAX_BYTES}B) — split into parts, reviewed in ONE multi-file invocation" >&2
     chunks="$(split_plan "$tmpd")" || {
       echo "[plan_review] FAIL — chunking failed" >&2
@@ -416,31 +496,56 @@ main() {
       echo "[plan_review] multi-file whole-plan review succeeded (${n} parts)" >&2
       review_json="$(cat "$multi_json")"
     else
-      echo "[plan_review] WARN — multi-file review failed or unparsable; falling back to sequential per-part reviews" >&2
-      local i=0 p json_files=()
-      for p in "${paths[@]}"; do
-        i=$((i + 1))
-        local jf="$tmpd/review_${i}.json"
-        local note
-        note=$'\n\nThis is chunk '"$i"' of '"$n"' of a larger plan; review only what is shown and do not penalize omissions that another chunk may cover — but DO flag cross-artifact contracts (producer↔consumer value flows, enumeration↔tree call-site sets) as findings tagged UNVERIFIED-CROSS-CHUNK with status ADVISORY. An unverified internal enumeration is a real issue, not an invented one.\n\nDeterministic self-check output is attached as a separate file; treat it as authoritative for baseline/enumeration checks it ran. Reviewer session nonce: '"$(date +%s%N)-$RANDOM"
-        if review_once "$note" "$selfcheck_tmp" "$p" > "$jf"; then
-          json_files+=("$jf")
-        else
-          echo "[plan_review] WARN — chunk ${i}/${n} review failed; continuing" >&2
-        fi
-      done
-      if [[ "${#json_files[@]}" -eq 0 ]]; then
-        echo "[plan_review] FAIL — all chunk reviews failed" >&2
-        return 1
-      fi
-      review_json="$(merge_json "$OUT" "${json_files[@]}")"
+      echo "[plan_review] FAIL — multi-file review failed or unparsable. NOT falling back to sequential per-part reviews (single-pass cost policy)." >&2
+      echo "[plan_review]   Split the plan so each part attaches cleanly, or re-run with --force only if the operator accepts the extra spend." >&2
+      return 1
     fi
   fi
+  LAST_RAW_BYTES="$(cat "$rawsize_file" 2>/dev/null || echo 0)"
+  if ! [[ "$LAST_RAW_BYTES" =~ ^[0-9]+$ ]]; then LAST_RAW_BYTES=0; fi
   printf '%s\n' "$review_json" > "$OUT"
   echo "[plan_review] wrote: $OUT"
+  EMIT_ELAPSED=$(( $(date +%s) - MAIN_START ))
+  EMIT_PASS=$(( prior + 1 ))
+  EMIT_PLAN_BYTES=$(wc -c < "$PLAN")
   emit_telemetry "$review_json"
+  append_ledger
+  echo "[plan_review] done: pass=$EMIT_PASS elapsed=${EMIT_ELAPSED}s raw=${LAST_RAW_BYTES}B" >&2
   echo "$review_json"
   return 0
+}
+
+# ── Review ledger (single-pass enforcement) ────────────────────────────────
+# Appends one JSONL line per completed review. ledger_prior() reads it to
+# hard-refuse a second review of the same plan. Local-only; no network; no
+# secrets. Override the path with PLAN_REVIEW_LEDGER.
+append_ledger() {
+  python3 - "$LEDGER" "$PLAN_ABS" "$MODEL" "$EMIT_PASS" "$EMIT_PLAN_BYTES" "$LAST_RAW_BYTES" "$EMIT_ELAPSED" "$OUT" <<'PYLEDGER' || true
+import json, os, sys, datetime
+ledger, plan, model, p, plan_bytes, raw_bytes, elapsed, out = sys.argv[1:9]
+try:
+    d = json.load(open(out))
+except Exception:
+    d = {}
+fs = d.get("findings", []) or []
+rec = {
+    "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "plan": plan,
+    "model": model,
+    "pass": int(p),
+    "grade": d.get("grade", "?"),
+    "score": d.get("score", "?"),
+    "findings": len(fs),
+    "defects": sum(1 for f in fs if f.get("status") == "FAIL"),
+    "plan_bytes": int(plan_bytes),
+    "raw_bytes": int(raw_bytes),
+    "elapsed_s": int(elapsed),
+    "approved": True,
+}
+os.makedirs(os.path.dirname(ledger), exist_ok=True)
+with open(ledger, "a") as f:
+    f.write(json.dumps(rec) + "\n")
+PYLEDGER
 }
 
 # ── Telemetry hook (Task 11) ──────────────────────────────────────────────
@@ -453,7 +558,8 @@ emit_telemetry() {
   local hook_state_writes=1   # we wrote one OUT (review.json)
   local hook_tool_calls=1     # at minimum one opencode invocation
   local sink="$SCRIPT_DIR/../execution/_telemetry.jsonl"
-  python3 - "$OUT" "$project" "$MODEL" "$hook_state_writes" "$hook_tool_calls" "$sink" <<'PYTELEMETRY' || true
+  python3 - "$OUT" "$project" "$MODEL" "$hook_state_writes" "$hook_tool_calls" "$sink" \
+    "${EMIT_PLAN_BYTES:-0}" "${LAST_RAW_BYTES:-0}" "${EMIT_ELAPSED:-0}" "${EMIT_PASS:-1}" <<'PYTELEMETRY' || true
 import json, os, sys, datetime
 out_path = sys.argv[1]
 project  = sys.argv[2] if sys.argv[2] else "unknown"
@@ -461,6 +567,10 @@ model    = sys.argv[3]
 state_writes = int(sys.argv[4])
 tool_calls   = int(sys.argv[5])
 sink = sys.argv[6]
+plan_bytes = int(sys.argv[7])
+raw_bytes  = int(sys.argv[8])
+elapsed_s  = int(sys.argv[9])
+review_pass = int(sys.argv[10])
 try:
     d = json.load(open(out_path))
 except Exception:
@@ -481,8 +591,13 @@ record = {
     "findings": len(fs),
     "defects": defects,
     "deviations": 0,
-    "rework": 1 if "re-review" in (d.get("summary", "") or "").lower() else 0,
+    "rework": 0,
     "recovery_success": defects == 0,
+    "plan_bytes": plan_bytes,
+    "raw_bytes": raw_bytes,
+    "elapsed_s": elapsed_s,
+    "pass": review_pass,
+    "approved": True,
     "counterfactual": None,
 }
 os.makedirs(os.path.dirname(sink), exist_ok=True)

@@ -15,7 +15,7 @@
 #   0 — PASS
 #   1 — FAIL (non-compliant plan)
 
-# file-budget: 1000 — framework plan structural gate; P1–P8 + R5 + CQ9 + R7 check phases; sentinel example documented in addenda/file-budget.md
+# file-budget: 1050 — framework plan structural gate; P1–P8 + R5 + CQ9 check phases + DR ledger (PLAN_CORE §0, 2026-10-18); sentinel example documented in addenda/file-budget.md
 set -euo pipefail
 
 REQUIRE_FULL=0
@@ -457,9 +457,10 @@ phase2_emit() {
 if [[ "$REPORT_PHASE2" -eq 1 ]]; then
 
   # ── P8d: every DR-N block carries an Assumptions entry ──────────────────
-  # The block format lives at PLAN_CORE.md:177-181. We require the literal
-  # string `Assumptions:` after a `### DR-N:` heading. Missing → emit (does
-  # not fail under --report-phase2).
+  # The block format lives in PLAN_CORE.md §1 DECISION RECORDS (cite the
+  # section, not a line number — §2 forbids volatile coordinates). We require
+  # the literal string `Assumptions:` after a `### DR-N:` heading. Missing →
+  # emit (does not fail under --report-phase2).
   check_dr_assumptions() {
     local dr_blocks
     dr_blocks=$(rg -n '^### DR-[0-9]+' "$PLAN" || true)
@@ -743,10 +744,19 @@ fi  # REPORT_PHASE2
 
 # ── P6: CQ / A11 / A12 markers in plan body ─────────────────────────────────
 check_cq_markers() {
-  if rg -q 'CQ9\.2|model-switch' "$PLAN"; then
-    pass "P6: CQ9.2 / model-switch pause reference present"
+  if rg -q 'CQ9\.2|reviewer-dispatch|reviewer dispatch' "$PLAN"; then
+    pass "P6: CQ9.2 reviewer-dispatch reference present"
   else
-    fail "P6: CQ9.2 pause text or 'model-switch' mention required in plan (CQ9.2 gate)"
+    fail "P6: CQ9.2 text, 'reviewer-dispatch', or 'reviewer dispatch' mention required in plan (CQ9.2 gate)"
+  fi
+
+  # The reviewer must be a distinct clean context, and the review must record the
+  # dispatch. A plan that names a Code Review task but never mentions the reviewer
+  # would let execution fall back to self-review silently (CQ9.2 / EXECUTION_PROTOCOL §9.0).
+  if rg -qi 'code-reviewer|clean-context reviewer|clean context' "$PLAN"; then
+    pass "P6: clean-context reviewer named (CQ9.2 / EXECUTION_PROTOCOL §9.0)"
+  else
+    fail "P6: plan names a Code Review task but no clean-context reviewer — add the reviewer dispatch clause (CQ9.2 / §9.0)"
   fi
 
   if rg -q 'A11' "$PLAN"; then
@@ -762,6 +772,57 @@ check_cq_markers() {
   fi
 }
 check_cq_markers
+
+# ── P6-R14: web-related plans must name Playwright ──────────────────────────
+check_web_markers() {
+  # Heuristic, advisory only (never a FAIL). Strong signals are browser
+  # artifacts that are unambiguous on their own; weak signals (jsx/tsx/css/
+  # dist/DOM/browser) only count alongside a UI-intent word, so a skip-list
+  # enumeration like "*.test.tsx, dist/" does not trip it.
+  local strong_re='\.html\b|\bindex\.html\b|\bweb/static\b|\bpublic/|\bLovelace\b|\.vue\b|\.svelte\b'
+  local weak_re='\.jsx\b|\.tsx\b|\.css\b|\bdist/|\bDOM\b|\bbrowser\b|front-?end|\bSPA\b'
+  local intent_re='\bUI\b|\bDOM\b|\bbrowser\b|render|click|front-?end|\bSPA\b|\bpage\b|\bview\b'
+  local is_web=0
+  if rg -qi "$strong_re" "$PLAN"; then
+    is_web=1
+  elif rg -qi "$weak_re" "$PLAN" && rg -qi "$intent_re" "$PLAN"; then
+    is_web=1
+  fi
+  [[ "$is_web" -eq 1 ]] || return 0
+  # Waiver FIRST, and scope it to the plan's PREAMBLE section. Two traps this
+  # avoids:
+  #   1. Markdown emphasis — plans write `**Playwright:** N/A`, `- **Playwright:**`
+  #      N/A, so a bare `Playwright: *N/A` misses the bold forms.
+  #   2. A REQUIRED plan whose self-check table contains the literal string
+  #      `Playwright: N/A` (dnd_character_sheet line 1139 greps for exactly that
+  #      string to prove it did NOT claim the waiver). A body-wide scan reads
+  #      that proof-text as a waiver and waives a plan that requires the pass.
+  # The preamble is where the declaration lives; it sits either before the first
+  # H2 or under an explicit `## Preamble` H2 (both shapes occur in the corpus),
+  # so cut the plan at whichever comes first.
+  local preamble
+  preamble=$(awk '/^## /{exit} {print}' "$PLAN")
+  if ! printf '%s' "$preamble" | rg -qi 'Playwright:\** *N/?A'; then
+    preamble=$(awk '/^#+ *Preamble/{f=1; next} /^## /{f=0} f' "$PLAN")
+  fi
+  if printf '%s' "$preamble" | rg -qi 'Playwright:\** *N/?A'; then
+    pass "P6: R14 Playwright waiver recorded (web-related plan)"
+  elif rg -qi 'playwright' "$PLAN"; then
+    pass "P6: R14 Playwright functional-test reference present (web-related plan)"
+    # R14 alone is not enough: an author-run pass is a self-review in costume
+    # (web.md W2.1). The subagent dispatch is what makes the pass independent,
+    # so it is a hard gate, not an advisory — an advisory here is the loophole
+    # that let a plan ship "Playwright: yes" with no clean context behind it.
+    if rg -qi 'playwright-tester|clean-context tester|functional-tester' "$PLAN"; then
+      pass "P6: R14 Playwright pass dispatched to a clean-context subagent (web.md W2.1)"
+    else
+      fail "P6: R14 — plan names Playwright but never dispatches it — the pass must run in a clean-context 'playwright-tester' subagent, not the authoring agent (addenda/web.md W2.1)"
+    fi
+  else
+    warn "P6: R14 — plan looks web-related but names neither Playwright nor 'Playwright: N/A' — add a Playwright functional-test task (addenda/web.md)"
+  fi
+}
+check_web_markers
 
 # ── Decomposition hint for large multi-check work ───────────────────────────
 if rg -qi 'aggregat|multi-check|evaluator|handler' "$PLAN"; then
@@ -895,6 +956,95 @@ check_r5_coverage() {
   pass "R5 §12 coverage: ${cited} evidence-cited lines (advisory)"
 }
 check_r5_coverage
+
+# ── Reconciliation record (advisory) ────────────────────────────────────────
+# PLAN_CORE §8.6 (trial 2026-10-07): a Tier 2/3 plan carries a preamble
+# `Reconciliation:` record line. Advisory — never increments FAILS.
+check_reconciliation_record() {
+  local preamble
+  preamble="$(awk '/^#{2,3}[[:space:]]+Task[[:space:]]+[0-9]+/{exit} {print}' "$PLAN")"
+  if ! printf '%s\n' "$preamble" | rg -qi 'tier[^0-9]*[23]([^0-9/]|$)'; then
+    pass "reconciliation record: not a Tier 2/3 plan — check skipped"
+    return
+  fi
+  if printf '%s\n' "$preamble" | rg -qi '^[[:space:]>*-]*[*]{0,2}reconciliation[*]{0,2}[[:space:]]*:'; then
+    pass "reconciliation record present (PLAN_CORE §8.6)"
+  else
+    warn "Tier 2/3 plan has no 'Reconciliation:' record in the preamble — PLAN_CORE §8.6 (advisory; never blocks)"
+  fi
+}
+check_reconciliation_record
+
+# ── DR ledger: every decision record resolved (PLAN_CORE §0) ────────────────
+# A DR block whose `Decision:` is empty, a bracketed template placeholder, or
+# `TBD` is an unmade decision — authoring is blocked on it (§0 Terminal
+# condition). Fenced code blocks are blanked first, so a plan that quotes the DR
+# template is not flagged. Decisions taken on the AI's recommendation are
+# legitimate and counted for visibility, never blocked.
+check_dr_ledger() {
+  local body decisions unresolved accepted drs owners unbalanced=0
+  # An unbalanced fence blanks the tail, which would silently hide every DR
+  # after it and report a false green — so awk exits 3 and we block instead.
+  body="$(awk 'END { exit (f ? 3 : 0) } { if ($0 ~ /^[[:space:]]*```/) { f = !f; print "" } else if (f) print ""; else print }' "$PLAN")" || unbalanced=1
+  if [[ "$unbalanced" -eq 1 ]]; then
+    fail "DR ledger: unbalanced \`\`\` fence — the DECISION RECORDS section is unchecked (PLAN_CORE §0)"
+    return
+  fi
+  body="$(printf '%s\n' "$body" | sed 's/\*//g')"
+
+  # Owner is advisory only: §12 requires the tag, but a plan authored under the
+  # pre-2026-10-18 format carries none and must still pass the gate. Counted
+  # before the Decision-line early return so a DR block with no Decision is
+  # still reported.
+  drs="$(printf '%s\n' "$body" | rg -c '^#{2,4}[[:space:]]*DR-[0-9]+' || true)"
+  owners="$(printf '%s\n' "$body" | rg -c '^[[:space:]]*(-[[:space:]]*)?Owner[[:space:]]*:[[:space:]]*(SME|shared|AI)' || true)"
+  drs="${drs:-0}"; owners="${owners:-0}"
+  if [[ "$drs" -gt 0 && "$drs" -ne "$owners" ]]; then
+    warn "DR ledger: ${owners}/${drs} DR block(s) carry an Owner tag (SME | shared | AI) — PLAN_CORE §0"
+  fi
+
+  decisions="$(printf '%s\n' "$body" | rg -c '^[[:space:]]*(-[[:space:]]*)?Decision[[:space:]]*:' || true)"
+  decisions="${decisions:-0}"
+  if [[ "$decisions" -eq 0 ]]; then
+    pass "DR ledger: no Decision records — n/a"
+    return
+  fi
+
+  unresolved="$(printf '%s\n' "$body" \
+    | rg -n '^[[:space:]]*(-[[:space:]]*)?Decision[[:space:]]*:[[:space:]]*(\[[^]]*\]|[Tt][Bb][Dd])?[[:space:]]*$' || true)"
+  if [[ -n "$unresolved" ]]; then
+    while IFS= read -r hit; do
+      [[ -z "$hit" ]] && continue
+      fail "DR ledger: unresolved Decision — fill it or record 'accept' (PLAN_CORE §0) — $hit"
+    done <<< "$unresolved"
+  else
+    pass "DR ledger: all ${decisions} Decision record(s) resolved"
+  fi
+
+  accepted="$(printf '%s\n' "$body" \
+    | rg -c '^[[:space:]]*(-[[:space:]]*)?Decision[[:space:]]*:[[:space:]]*[Aa]ccepted AI recommendation' || true)"
+  accepted="${accepted:-0}"
+  pass "DR ledger: ${accepted}/${decisions} decision(s) taken on AI recommendation (advisory)"
+}
+check_dr_ledger
+
+# ── Repo-local lint hook (LOCAL_RULES.md) ───────────────────────────────────
+# A downstream repo may enforce project-specific plan rules with
+# agent_planning/LOCAL_LINT.sh — deliberately outside the synced set, so a
+# framework sync neither clobbers it nor ships it. When present it runs last
+# with the plan path as $1; any non-zero exit counts as a lint failure, so the
+# fail-closed bootstrap (init_execution_dir.sh) refuses the plan. The hook owns
+# its own output; this wrapper only folds in the verdict. Note: the non-code
+# early exits above skip this hook along with the rest of the gate.
+LINT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_LINT="$(dirname "$LINT_DIR")/LOCAL_LINT.sh"
+if [[ -f "$LOCAL_LINT" ]]; then
+  if bash "$LOCAL_LINT" "$PLAN"; then
+    pass "LOCAL_LINT.sh — repo-local rules passed"
+  else
+    fail "LOCAL_LINT.sh — repo-local rules failed (see agent_planning/LOCAL_RULES.md)"
+  fi
+fi
 
 echo ""
 if [[ "$FAILS" -gt 0 ]]; then
