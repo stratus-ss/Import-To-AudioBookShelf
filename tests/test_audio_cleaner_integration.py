@@ -228,6 +228,7 @@ class TestInitializeMonkeyplug:
         """Test that WhisperPlugger is initialized with correct parameters."""
         base_config.swears_file = "/path/to/swears.txt"
         base_config.save_transcripts = True
+        base_config.remote_asr_backend = "whisper-webui"
 
         cleaner = AudioCleaner(base_config, mock_log_file)
         
@@ -246,8 +247,29 @@ class TestInitializeMonkeyplug:
         
         assert call_kwargs["iSwearsFileSpec"] == "/path/to/swears.txt"
         assert call_kwargs["remoteUrl"] == "http://whisper:8000"
+        assert call_kwargs["remoteBackend"] == "whisper-webui"
         assert call_kwargs["apiTimeout"] == 600
         assert call_kwargs["useChunking"] is False
+
+    @patch('os.path.getsize', return_value=100 * 1024 * 1024)  # 100MB file
+    @patch('openaudible_to_audiobookshelf.audio_cleaner.WhisperPlugger')
+    def test_passes_qwen3_asr_backend_through(self, mock_plugger_class, mock_getsize, base_config, mock_log_file):
+        """Test that remote_asr_backend is forwarded as remoteBackend."""
+        base_config.swears_file = "/path/to/swears.txt"
+        base_config.remote_asr_backend = "qwen3-asr"
+
+        cleaner = AudioCleaner(base_config, mock_log_file)
+        cleaner._initialize_monkeyplug(
+            "/path/to/test.m4b",
+            {
+                "working_dir": Path("/tmp/test"),
+                "output_file": "/output/test.m4b",
+                "audio_format": "m4a",
+                "transcript_file": "/output/transcript.json",
+            },
+        )
+
+        assert mock_plugger_class.call_args[1]["remoteBackend"] == "qwen3-asr"
 
     @patch('os.path.getsize', return_value=100 * 1024 * 1024)  # 100MB file
     @patch('openaudible_to_audiobookshelf.audio_cleaner.WhisperPlugger')

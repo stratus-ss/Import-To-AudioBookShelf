@@ -206,10 +206,17 @@ def _validate_profanity_config(cfg: Config) -> None:
     if not url:
         raise ValueError(
             "Profanity cleaning is enabled but REMOTE_WHISPER_URL is not set. "
-            "Configure a Whisper-WebUI endpoint in .env "
+            "Configure a Whisper-WebUI or qwen3-asr endpoint in .env "
             "(e.g. REMOTE_WHISPER_URL=http://whisper-host:8000) or disable "
             "profanity cleaning via ENABLE_PROFANITY_CLEANING=false."
         )
+    backend = (getattr(cfg, "remote_asr_backend", "") or "whisper-webui").strip()
+    if backend not in ("whisper-webui", "qwen3-asr"):
+        raise ValueError(
+            f"Unknown REMOTE_ASR_BACKEND {backend!r}. "
+            "Use 'whisper-webui' (Whisper-WebUI) or 'qwen3-asr' (qwen3-asr job API)."
+        )
+    cfg.remote_asr_backend = backend
     swears = (getattr(cfg, "swears_file", "") or "").strip()
     if swears:
         return
@@ -287,6 +294,7 @@ def _build_config(
         "save_transcripts": _env("SAVE_TRANSCRIPTS", "true").lower() == "true",
         "swears_file": _env("SWEARS_FILE", ""),
         "remote_whisper_url": _env("REMOTE_WHISPER_URL", ""),
+        "remote_asr_backend": _env("REMOTE_ASR_BACKEND", "whisper-webui"),
         "whisper_model": _env("WHISPER_MODEL", "small"),
         "timeout": int(_env("TIMEOUT", "600")),
         "confidence_threshold": float(_env("CONFIDENCE_THRESHOLD", "0.70")),

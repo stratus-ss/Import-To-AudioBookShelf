@@ -470,11 +470,12 @@ Additional discovery and management tools:
 | Variable | Description | Default |
 |---|---|---|
 | `ENABLE_PROFANITY_CLEANING` | Enable audio profanity filtering | `false` |
-| `REMOTE_WHISPER_URL` | Whisper-WebUI transcription server URL | (empty) |
+| `REMOTE_WHISPER_URL` | Remote transcription server URL (Whisper-WebUI or qwen3-asr) | (empty) |
+| `REMOTE_ASR_BACKEND` | Remote API to call: `whisper-webui` or `qwen3-asr` | `whisper-webui` |
 | `SWEARS_FILE` | Custom swears list file (JSON or text) | (empty = MonkeyPlug default) |
 | `WORKING_DIRECTORY` | Durable dir for chunks + transcripts + resume JSON. **Must NOT be `/tmp`** (volatile; breaks resume across reboots). | `~/.cache/monkeyplug-cleaning` |
 | `SAVE_TRANSCRIPTS` | Keep transcript JSON files | `true` |
-| `TIMEOUT` | Transcription timeout in seconds | `600` |
+| `TIMEOUT` | Transcription timeout in seconds. Ceiling for one upload+poll cycle, so for `qwen3-asr` set it to cover a whole 50 MB chunk (roughly 300 s per hour of audio; `3600` is a safe value for large books). | `600` |
 | `CONFIDENCE_THRESHOLD` | Censoring confidence threshold (0.0-1.0) | `0.70` |
 | `BEEP_MODE` | Beep over profanity instead of muting | `false` |
 

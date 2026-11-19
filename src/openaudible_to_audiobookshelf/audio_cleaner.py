@@ -583,6 +583,7 @@ class AudioCleaner:
                 "inputTranscript": input_transcript,
                 "saveTranscript": self.config.save_transcripts,
                 "remoteUrl": self.config.remote_whisper_url,
+                "remoteBackend": getattr(self.config, "remote_asr_backend", "whisper-webui"),
                 "apiTimeout": self.config.timeout,
                 "pollInterval": getattr(self.config, "poll_interval", 30),
                 "confidenceThreshold": self.config.confidence_threshold,
@@ -641,6 +642,10 @@ class AudioCleaner:
         self._log(f"  Audio format for MonkeyPlug: '{paths['audio_format']}'")
         self._log(f"  Output file: {paths['output_file']}")
         self._log(f"  Remote Whisper URL: {self.config.remote_whisper_url}")
+        self._log(
+            f"  Remote ASR backend: "
+            f"{getattr(self.config, 'remote_asr_backend', 'whisper-webui')}"
+        )
         self._log(f"  Swears file: {self.config.swears_file}")
         self._log(f"  Timeout: {self.config.timeout}s")
         self._log(f"  Beep mode: {self.config.beep_mode}")

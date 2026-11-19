@@ -178,7 +178,16 @@ def _get_parser() -> argparse.ArgumentParser:
         dest="remote_whisper_url",
         type=str,
         default="",
-        help="Remote Whisper-WebUI service URL (e.g., http://whisper-server:8000)",
+        help="Remote transcription service URL (Whisper-WebUI or qwen3-asr, e.g. http://whisper-server:8000)",
+    )
+
+    parser.add_argument(
+        "--remote-asr-backend",
+        dest="remote_asr_backend",
+        type=str,
+        default="whisper-webui",
+        choices=["whisper-webui", "qwen3-asr"],
+        help="Remote transcription API: 'whisper-webui' (default) or 'qwen3-asr' (job API)",
     )
 
     parser.add_argument(
@@ -346,7 +355,7 @@ class Config:
         whisper_url = getattr(self, "remote_whisper_url", "")
         if not whisper_url or not whisper_url.strip():
             missing_errors.append(
-                "Remote Whisper URL required when profanity cleaning is enabled"
+                "Remote transcription URL required when profanity cleaning is enabled"
             )
         
         # Set default swears file if not provided

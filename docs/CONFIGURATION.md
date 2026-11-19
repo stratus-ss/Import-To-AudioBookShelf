@@ -43,7 +43,8 @@ All options can be passed on the command line or via a YAML file (`--yaml-argume
 | `--copy-instead-of-move` | `False` | Copy files instead of moving |
 | `--generate-yaml` | `False` | Write YAML instead of running |
 | `--enable-profanity-cleaning` | `False` | Run monkeyplug profanity cleaning during organize. Failed books are skipped (absent from `moved`) and reported in `cleaning_failures[]`. Measured: ~8 min per hour of audio on prod Whisper (RTX 5060 Ti, `tiny` model). Requires `REMOTE_WHISPER_URL` env var — fails fast on unreachable. |
-| `--remote-whisper-url` | (env: `REMOTE_WHISPER_URL`) | Whisper-webui backend URL. Used by profanity cleaning. Fails fast on TCP-level unreachable (~5s probe). |
+| `--remote-whisper-url` | (env: `REMOTE_WHISPER_URL`) | Remote transcription backend URL (Whisper-WebUI or qwen3-asr). Used by profanity cleaning. Fails fast on TCP-level unreachable (~5s probe). |
+| `--remote-asr-backend` | `whisper-webui` | Remote transcription API: `whisper-webui` (Whisper-WebUI task API) or `qwen3-asr` (`POST /v1/jobs` job API). Env: `REMOTE_ASR_BACKEND`. |
 
 ### Libation-Specific
 
@@ -88,7 +89,8 @@ Run individual steps with `--step`:
 
 | Var | Purpose |
 |-----|---------|
-| `REMOTE_WHISPER_URL` | Required when `--enable-profanity-cleaning=true`. URL of the whisper-webui backend (set in `abs_mcp/.env` from your deployment's `${REMOTE_WHISPER_URL}`). Without it, cleaning fails fast with a clear `ValueError` rather than silently moving un-cleaned files. |
+| `REMOTE_WHISPER_URL` | Required when `--enable-profanity-cleaning=true`. URL of the remote transcription backend — Whisper-WebUI or qwen3-asr (set in `abs_mcp/.env` from your deployment's `${REMOTE_WHISPER_URL}`). Without it, cleaning fails fast with a clear `ValueError` rather than silently moving un-cleaned files. |
+| `REMOTE_ASR_BACKEND` | Which API `REMOTE_WHISPER_URL` speaks: `whisper-webui` (default, `/transcription/` + `/task/`) or `qwen3-asr` (`POST /v1/jobs` + `GET /v1/jobs/{id}`). Must match the service, not the URL. |
 | `MCP_ENV_FILE` | Path to the abs_mcp `.env` file (production: `abs_mcp/.env`). Bundles ABS credentials, library paths, profanity-cleaning config. |
 | `MCP_TRANSPORT` | `streamable-http` (default) or other FastMCP transport. |
 | `MCP_HOST` | Bind host for the MCP server (default: `0.0.0.0`). |

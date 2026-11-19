@@ -247,12 +247,21 @@ Measured on 2026-07-24 against the production Whisper backend (RTX 5060 Ti, `tin
 
 ETA formula: `(elapsed_sec / books_done) * (books_total - books_done)`. If `books_done == 0`, ETA is null. Measured accuracy: **±3%** on 3-book batch (within the ±25% design tolerance).
 
-### Backend params
-The MCP explicitly disables diarization and VAD on the Whisper backend by
-passing `remoteParams={"is_diarize": "false", "vad_filter": "false", "lang": "en"}`
-on every transcription upload. This prevents the 40 GiB OOM caused by pyannote
-diarization on audiobook-length files. The container also has a 16 GiB memory
-limit and auto-restart as a second line of defense.
+### Backend selection and params
+`REMOTE_ASR_BACKEND` picks which API `REMOTE_WHISPER_URL` speaks:
+
+- `whisper-webui` (default): `/transcription/` + `/task/`.
+- `qwen3-asr`: `POST /v1/jobs` + `GET /v1/jobs/{id}`. Word timings come from the
+  forced aligner, so there is no per-word confidence. Set `TIMEOUT=3600` for
+  large books — each 50 MB chunk is one background job.
+
+The MCP does **not** send `remoteParams` today (the old diarization/VAD override
+was dropped in commit `4de60a0`), so diarization must stay disabled in the
+Whisper-WebUI backend's own `default_parameters.yaml`. The container also has a
+16 GiB memory limit and auto-restart as a second line of defense.
+
+qwen3-asr jobs live in service memory: a restart mid-job answers 404, which the
+cleaner reports as a failed book rather than polling forever.
 
 ## Async Job Pattern (organize_books / ingest_books)
 
